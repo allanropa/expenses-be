@@ -20,6 +20,8 @@ def response_for(transaction: FinancialTransaction) -> TransactionResponse:
         transaction_type=transaction.transaction_type,
         amount=normalize_amount(transaction.amount, transaction.currency),
         currency=transaction.currency,
+        original_amount=normalize_amount(transaction.original_amount, transaction.original_currency) if transaction.original_amount is not None and transaction.original_currency else None,
+        original_currency=transaction.original_currency,
         transaction_date=transaction.transaction_date,
         account_id=transaction.account_id,
         card_id=transaction.card_id,

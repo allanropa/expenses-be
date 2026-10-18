@@ -54,3 +54,8 @@ def test_received_loan_can_skip_income_and_accept_extra_principal_payment(client
     assert payment.status_code == 201, payment.text
     assert Decimal(payment.json()["extra_principal"]) == Decimal("100000")
     assert Decimal(client.get(f"/api/loans/{loan.json()['id']}").json()["outstanding_principal"]) < Decimal("1000000")
+    transactions = client.get("/api/transactions").json()
+    payment_txs = [t for t in transactions if t["transaction_type"] == "payment"]
+    assert len(payment_txs) == 1
+    assert Decimal(payment_txs[0]["amount"]) > 0
+    assert "capital" in payment_txs[0]["description"]

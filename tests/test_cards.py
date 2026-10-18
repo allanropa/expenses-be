@@ -184,3 +184,38 @@ def test_card_debt_adjustment_is_grouped_by_currency(client):
     usd = next(item for item in details["currencies"] if item["currency"] == "USD")
     assert cop["outstanding_debt"] == "250000"
     assert Decimal(usd["outstanding_debt"]) == Decimal("0")
+
+
+def test_credit_purchase_transaction_can_be_deleted(client):
+    csrf = register(client)
+    categories = client.get("/api/categories").json()
+    food = next(item for item in categories if item["name"] == "Alimentación")
+    card = client.post(
+        "/api/cards",
+        headers={"X-CSRF-Token": csrf},
+        json={"name": "Visa", "statement_closing_day": 15, "currencies": [{"currency": "COP"}]},
+    ).json()
+    purchase = client.post(
+        f"/api/cards/{card['id']}/purchases",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "card_id": card["id"],
+            "category_id": food["id"],
+            "amount": "100000",
+            "currency": "COP",
+            "purchase_date": "2026-01-10",
+            "installments_count": 3,
+            "description": "Compra a crédito",
+        },
+    )
+    assert purchase.status_code == 201, purchase.text
+    assert client.get(f"/api/cards/{card['id']}").json()["currencies"][0]["outstanding_debt"] == "100000"
+    transaction = next(item for item in client.get("/api/transactions").json() if item["credit_purchase_id"] == purchase.json()["id"])
+    deleted = client.delete(
+        f"/api/transactions/{transaction['id']}",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert deleted.status_code == 204, deleted.text
+    assert client.get(f"/api/cards/{card['id']}").json()["currencies"][0]["outstanding_debt"] == "0"
+    remaining = [item for item in client.get("/api/transactions").json() if item["credit_purchase_id"] == purchase.json()["id"]]
+    assert remaining == []

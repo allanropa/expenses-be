@@ -43,8 +43,10 @@ def dashboard(
     income: dict[str, Decimal] = {}
     expenses: dict[str, Decimal] = {}
     for item in transactions:
-        target = income if item.transaction_type == "income" else expenses
-        target[item.currency] = target.get(item.currency, Decimal("0")) + Decimal(item.amount)
+        if item.transaction_type == "income":
+            income[item.currency] = income.get(item.currency, Decimal("0")) + Decimal(item.amount)
+        elif item.transaction_type == "expense":
+            expenses[item.currency] = expenses.get(item.currency, Decimal("0")) + Decimal(item.amount)
     accounts = db.query(Account).filter(Account.user_id == context.user.id, Account.is_archived.is_(False)).all()
     cards = db.query(CreditCard).filter(CreditCard.user_id == context.user.id, CreditCard.is_archived.is_(False)).all()
     debt = []
@@ -82,6 +84,8 @@ def dashboard(
             "transaction_type": item.transaction_type,
             "amount": item.amount,
             "currency": item.currency,
+            "original_amount": item.original_amount,
+            "original_currency": item.original_currency,
             "transaction_date": item.transaction_date,
             "payment_method": item.payment_method,
             "description": item.description,

@@ -101,6 +101,8 @@ class TransactionResponse(BaseModel):
     transaction_type: str
     amount: Decimal
     currency: str
+    original_amount: Decimal | None
+    original_currency: str | None
     transaction_date: date
     account_id: int | None
     card_id: int | None

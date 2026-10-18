@@ -115,13 +115,15 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
         raise HTTPException(status_code=422, detail="No hay cuotas pendientes")
     scheduled_amount = normalize_amount(payload.scheduled_amount or installment.total_amount, loan.currency)
     extra = normalize_amount(payload.extra_principal, loan.currency, positive=False)
-    interest_paid = min(Decimal(installment.interest_amount), scheduled_amount)
+    if payload.interest_paid is not None:
+        interest_paid = normalize_amount(payload.interest_paid, loan.currency, positive=False)
+    else:
+        interest_paid = min(Decimal(installment.interest_amount), scheduled_amount)
     principal_paid = min(balance, scheduled_amount - interest_paid)
     total = scheduled_amount + extra
     if principal_paid + extra > balance:
         raise HTTPException(status_code=422, detail="El abono supera el capital pendiente")
     operation = create_operation(db, user_id, "loan_payment", payload.payment_date)
-    db.add(AccountMovement(operation_id=operation.id, account_id=source.id, amount=-total, currency=loan.currency))
     db.add(LoanMovement(operation_id=operation.id, loan_id=loan.id, amount=-principal_paid - extra, currency=loan.currency, movement_type="principal_payment"))
     payment = LoanPayment(
         operation_id=operation.id,
@@ -137,8 +139,10 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
     )
     db.add(payment)
     if interest_paid > 0:
+        interest_operation = create_operation(db, user_id, "loan_interest", payload.payment_date)
+        db.add(AccountMovement(operation_id=interest_operation.id, account_id=source.id, amount=-interest_paid, currency=loan.currency))
         db.add(FinancialTransaction(
-            operation_id=operation.id,
+            operation_id=interest_operation.id,
             user_id=user_id,
             transaction_type="expense",
             amount=interest_paid,
@@ -149,6 +153,22 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
             payment_method="debit",
             description=f"Interés de préstamo: {loan.name}",
         ))
+    principal_total = principal_paid + extra
+    if principal_total > 0:
+        principal_operation = create_operation(db, user_id, "loan_principal_payment", payload.payment_date)
+        db.add(AccountMovement(operation_id=principal_operation.id, account_id=source.id, amount=-principal_total, currency=loan.currency))
+        db.add(FinancialTransaction(
+            operation_id=principal_operation.id,
+            user_id=user_id,
+            transaction_type="payment",
+            amount=principal_total,
+            currency=loan.currency,
+            transaction_date=payload.payment_date,
+            account_id=source.id,
+            category_id=loan.interest_category_id,
+            payment_method="debit",
+            description=f"Abono a capital: {loan.name}",
+        ))
     if scheduled_amount >= installment.total_amount and extra == 0:
         installment.status = "paid"
     else:
@@ -158,9 +178,10 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
         for charge in payload.extra_charges:
             category = get_owned_category(db, user_id, charge.category_id)
             ec_amount = normalize_amount(charge.amount, loan.currency)
-            db.add(AccountMovement(operation_id=operation.id, account_id=source.id, amount=-ec_amount, currency=loan.currency))
+            charge_operation = create_operation(db, user_id, "loan_extra_charge", payload.payment_date)
+            db.add(AccountMovement(operation_id=charge_operation.id, account_id=source.id, amount=-ec_amount, currency=loan.currency))
             db.add(FinancialTransaction(
-                operation_id=operation.id,
+                operation_id=charge_operation.id,
                 user_id=user_id,
                 transaction_type="expense",
                 amount=ec_amount,

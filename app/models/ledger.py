@@ -79,6 +79,8 @@ class FinancialTransaction(Base):
     transaction_type: Mapped[str] = mapped_column(String(8), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    original_amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+    original_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     transaction_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id", ondelete="RESTRICT"), nullable=True, index=True)
     card_id: Mapped[int | None] = mapped_column(ForeignKey("credit_cards.id", ondelete="RESTRICT"), nullable=True, index=True)

@@ -42,6 +42,7 @@ class LoanPaymentCreate(BaseModel):
     source_account_id: int
     payment_date: date
     scheduled_amount: Decimal | None = Field(default=None, gt=0)
+    interest_paid: Decimal | None = Field(default=None, ge=0)
     extra_principal: Decimal = Field(default=Decimal("0"), ge=0)
     notes: str | None = Field(default=None, max_length=2000)
     extra_charges: list[LoanExtraCharge] | None = None

@@ -103,11 +103,35 @@ def create_transaction(
 
 
 def reverse_transaction(db: Session, user_id: int, transaction: FinancialTransaction, reason: str) -> None:
+    if transaction.card_id is not None or transaction.credit_purchase_id is not None:
+        _reverse_credit_transaction(db, user_id, transaction)
+        return
     account = get_owned_account(db, user_id, transaction.account_id)
     operation = db.query(FinancialOperation).filter(FinancialOperation.id == transaction.operation_id, FinancialOperation.user_id == user_id).one()
     original_movement = db.query(AccountMovement).filter(AccountMovement.operation_id == operation.id).one()
     reversal = create_operation(db, user_id, "reversal", transaction.transaction_date)
     db.add(AccountMovement(operation_id=reversal.id, account_id=account.id, amount=-original_movement.amount, currency=account.currency))
+    operation.status = "voided"
+    reversal.reverses_operation_id = operation.id
+    transaction.status = "voided"
+
+
+def _reverse_credit_transaction(db: Session, user_id: int, transaction: FinancialTransaction) -> None:
+    from app.models.cards import CardMovement, CreditPurchase, Installment
+
+    operation = db.query(FinancialOperation).filter(
+        FinancialOperation.id == transaction.operation_id,
+        FinancialOperation.user_id == user_id,
+    ).one()
+    reversal = create_operation(db, user_id, "reversal", transaction.transaction_date)
+    for movement in db.query(CardMovement).filter(CardMovement.operation_id == operation.id).all():
+        db.add(CardMovement(operation_id=reversal.id, card_id=movement.card_id, amount=-movement.amount, currency=movement.currency))
+    if transaction.credit_purchase_id is not None:
+        purchase = db.query(CreditPurchase).filter(CreditPurchase.id == transaction.credit_purchase_id, CreditPurchase.user_id == user_id).one_or_none()
+        if purchase is not None:
+            purchase.status = "voided"
+            for installment in db.query(Installment).filter(Installment.purchase_id == purchase.id).all():
+                installment.status = "voided"
     operation.status = "voided"
     reversal.reverses_operation_id = operation.id
     transaction.status = "voided"

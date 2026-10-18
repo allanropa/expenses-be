@@ -37,6 +37,19 @@ def supported_currency(db: Session, card_id: int, currency: str) -> CardCurrency
     return item
 
 
+def default_payment_category(db: Session, user_id: int) -> Category:
+    category = db.query(Category).filter(Category.user_id == user_id, Category.name == "Pagos de deuda", Category.is_archived.is_(False)).one_or_none()
+    if category:
+        return category
+    category = db.query(Category).filter(Category.user_id == user_id, Category.name == "Otros gastos", Category.is_archived.is_(False)).one_or_none()
+    if category:
+        return category
+    category = Category(user_id=user_id, name="Pagos de deuda", kind="expense")
+    db.add(category)
+    db.flush()
+    return category
+
+
 def applicable_rate(db: Session, card_id: int, currency: str, purchase_date: date) -> Decimal:
     exact = db.query(InterestRateConfiguration).filter(
         InterestRateConfiguration.card_id == card_id,
@@ -195,8 +208,6 @@ def create_payment(db: Session, user_id: int, payload: PaymentCreate, idempotenc
 
     operation = create_operation(db, user_id, "card_payment", payload.payment_date, idempotency_key)
     db.add(CardMovement(operation_id=operation.id, card_id=card.id, amount=-obligation_amount, currency=obligation_currency))
-    if source_account:
-        db.add(AccountMovement(operation_id=operation.id, account_id=source_account.id, amount=-(source_amount + (fee_amount or 0)), currency=source_currency))
     payment = CardPayment(
         operation_id=operation.id,
         user_id=user_id,
@@ -222,17 +233,43 @@ def create_payment(db: Session, user_id: int, payload: PaymentCreate, idempotenc
         db.add(CardPaymentAllocation(payment_id=payment.id, charge_id=charge.id, amount=applied))
         remaining -= applied
     db.flush()
+    if source_account:
+        payment_operation = create_operation(db, user_id, "card_principal_payment", payload.payment_date)
+        total_source = source_amount + (fee_amount or 0)
+        db.add(AccountMovement(operation_id=payment_operation.id, account_id=source_account.id, amount=-total_source, currency=source_currency))
+        db.add(FinancialTransaction(
+            operation_id=payment_operation.id,
+            user_id=user_id,
+            transaction_type="payment",
+            amount=total_source,
+            currency=source_currency,
+            original_amount=obligation_amount if source_currency != obligation_currency else None,
+            original_currency=obligation_currency if source_currency != obligation_currency else None,
+            transaction_date=payload.payment_date,
+            account_id=source_account.id,
+            card_id=card.id,
+            category_id=default_payment_category(db, user_id).id,
+            payment_method="debit",
+            description=f"Pago tarjeta: {card.name}",
+        ))
     if payload.extra_charges and source_account:
         for charge in payload.extra_charges:
             category = get_owned_category(db, user_id, charge.category_id)
-            ec_amount = normalize_amount(charge.amount, source_currency)
-            db.add(AccountMovement(operation_id=operation.id, account_id=source_account.id, amount=-ec_amount, currency=source_currency))
+            ec_amount = normalize_amount(charge.amount, obligation_currency)
+            charge_operation = create_operation(db, user_id, "card_extra_charge", payload.payment_date)
+            if source_currency == obligation_currency:
+                deduction = ec_amount
+            else:
+                deduction = normalize_amount(ec_amount * exchange_rate, source_currency)
+            db.add(AccountMovement(operation_id=charge_operation.id, account_id=source_account.id, amount=-deduction, currency=source_currency))
             db.add(FinancialTransaction(
-                operation_id=operation.id,
+                operation_id=charge_operation.id,
                 user_id=user_id,
                 transaction_type="expense",
-                amount=ec_amount,
+                amount=deduction,
                 currency=source_currency,
+                original_amount=ec_amount if source_currency != obligation_currency else None,
+                original_currency=obligation_currency if source_currency != obligation_currency else None,
                 transaction_date=payload.payment_date,
                 account_id=source_account.id,
                 card_id=card.id,
