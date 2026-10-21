@@ -19,6 +19,8 @@ cors_origins = [
     "http://127.0.0.1:3000",
     "https://expenses.lan.rpamplona.com",
     "http://expenses.lan.rpamplona.com",
+    "https://expenses.rpamplona.com",
+    "http://expenses.rpamplona.com",
 ]
 
 # Add Docker network origins if in Docker environment
