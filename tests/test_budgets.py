@@ -133,6 +133,47 @@ def test_credit_budget_counts_purchase_not_card_payment(client):
     assert Decimal(summary["actual_spending"]) == Decimal("100000")
 
 
+def test_card_scoped_budget_counts_card_purchase(client):
+    csrf = register(client)
+    category = next(item for item in client.get("/api/categories").json() if item["name"] == "Alimentación")
+    card = client.post(
+        "/api/cards",
+        headers={"X-CSRF-Token": csrf},
+        json={"name": "Visa", "statement_closing_day": 15, "currencies": [{"currency": "COP"}]},
+    ).json()
+    purchase = client.post(
+        f"/api/cards/{card['id']}/purchases",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "card_id": card["id"],
+            "category_id": category["id"],
+            "amount": "100000",
+            "currency": "COP",
+            "purchase_date": "2026-01-10",
+            "installments_count": 1,
+            "description": "Compra crédito",
+        },
+    )
+    assert purchase.status_code == 201, purchase.text
+    budget = client.post(
+        "/api/budgets",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "name": "Tarjeta",
+            "budget_type": "maximum",
+            "target_amount": "150000",
+            "currency": "COP",
+            "period_type": "monthly",
+            "scope": "card",
+            "card_id": card["id"],
+            "spending_type": "credit",
+        },
+    )
+    assert budget.status_code == 201, budget.text
+    summary = client.get(f"/api/budgets/{budget.json()['id']}/summary?date_from=2026-01-01&date_to=2026-01-31").json()
+    assert Decimal(summary["actual_spending"]) == Decimal("100000")
+
+
 def test_budget_detail_can_update_limit_and_recalculate(client):
     csrf = register(client)
     budget = client.post(
@@ -159,3 +200,54 @@ def test_budget_detail_can_update_limit_and_recalculate(client):
     detail = client.get(f"/api/budgets/{budget['id']}")
     assert detail.status_code == 200
     assert detail.json()["name"] == "Editable 2"
+
+
+def test_budget_scope_change_to_card_requires_a_card(client):
+    csrf = register(client)
+    category = next(item for item in client.get("/api/categories").json() if item["name"] == "Alimentación")
+    card = client.post(
+        "/api/cards",
+        headers={"X-CSRF-Token": csrf},
+        json={"name": "Visa", "statement_closing_day": 15, "currencies": [{"currency": "COP"}]},
+    ).json()
+    assert client.post(
+        f"/api/cards/{card['id']}/purchases",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "card_id": card["id"],
+            "category_id": category["id"],
+            "amount": "100000",
+            "currency": "COP",
+            "purchase_date": "2026-01-10",
+            "installments_count": 1,
+            "description": "Compra crédito",
+        },
+    ).status_code == 201
+    budget = client.post(
+        "/api/budgets",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "name": "General",
+            "budget_type": "maximum",
+            "target_amount": "150000",
+            "currency": "COP",
+            "period_type": "monthly",
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-31",
+            "spending_type": "credit",
+        },
+    ).json()
+    rejected = client.patch(
+        f"/api/budgets/{budget['id']}",
+        headers={"X-CSRF-Token": csrf},
+        json={"scope": "card", "spending_type": "credit"},
+    )
+    assert rejected.status_code == 422
+    accepted = client.patch(
+        f"/api/budgets/{budget['id']}",
+        headers={"X-CSRF-Token": csrf},
+        json={"scope": "card", "card_id": card["id"], "spending_type": "credit"},
+    )
+    assert accepted.status_code == 200, accepted.text
+    summary = client.get(f"/api/budgets/{budget['id']}/summary?date_from=2026-01-01&date_to=2026-01-31").json()
+    assert Decimal(summary["actual_spending"]) == Decimal("100000")

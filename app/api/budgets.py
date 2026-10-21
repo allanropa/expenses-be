@@ -89,6 +89,10 @@ def update_budget(
         budget.end_date = payload.end_date
     if budget.end_date < budget.start_date:
         raise HTTPException(status_code=422, detail="El final no puede preceder al inicio")
+    if budget.scope == "account" and budget.account_id is None:
+        raise HTTPException(status_code=422, detail="Un presupuesto de cuenta requiere una cuenta")
+    if budget.scope == "card" and budget.card_id is None:
+        raise HTTPException(status_code=422, detail="Un presupuesto de tarjeta requiere una tarjeta")
     if payload.alert_threshold is not None:
         budget.alert_threshold = payload.alert_threshold
     db.commit()
