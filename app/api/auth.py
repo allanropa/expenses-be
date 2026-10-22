@@ -1,6 +1,8 @@
 import hashlib
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -15,6 +17,7 @@ from app.api.schemas import (
 )
 from app.core.config import settings
 from app.core.security import hash_password, new_session_values, verify_password
+from app.core.rate_limit import check_login_allowed, clear_login_failures, record_login_failure
 from app.db.session import get_db
 from app.domain.default_categories import DEFAULT_CATEGORIES
 from app.models.auth import AuthSession, User, UserSettings
@@ -24,6 +27,10 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 def create_auth_session(db: Session, user: User) -> tuple[AuthSession, str]:
+    db.query(AuthSession).filter(
+        AuthSession.user_id == user.id,
+        (AuthSession.revoked_at.is_not(None) | (AuthSession.expires_at <= datetime.now(timezone.utc))),
+    ).delete(synchronize_session=False)
     raw_token, token_hash, csrf_token, expires_at = new_session_values()
     session = AuthSession(user_id=user.id, token_hash=token_hash, csrf_token=csrf_token, expires_at=expires_at)
     db.add(session)
@@ -66,10 +73,16 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
 
 
 @router.post("/login", response_model=SessionResponse)
-def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)) -> SessionResponse:
-    user = db.query(User).filter(User.email == str(payload.email).lower()).one_or_none()
+def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)) -> SessionResponse:
+    email = str(payload.email).lower()
+    ip = request.client.host if request.client else "unknown"
+    if not check_login_allowed(ip, email):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Demasiados intentos de inicio de sesión")
+    user = db.query(User).filter(User.email == email).one_or_none()
     if user is None or not verify_password(payload.password, user.password_hash):
+        record_login_failure(ip, email)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Correo o contraseña inválidos")
+    clear_login_failures(ip, email)
     session, raw_token = create_auth_session(db, user)
     set_session_cookie(response, raw_token)
     return SessionResponse(user=UserResponse.model_validate(user), csrf_token=session.csrf_token)

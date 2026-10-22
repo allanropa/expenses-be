@@ -89,3 +89,18 @@ def test_password_change_revokes_other_sessions(client):
     assert changed.status_code == 204
     client.cookies.set("expenses_session", second_session)
     assert client.get("/api/auth/session").status_code == 401
+
+
+def test_login_is_rate_limited_after_repeated_failures(client):
+    register(client)
+    for _ in range(10):
+        response = client.post(
+            "/api/auth/login",
+            json={"email": "ana@example.com", "password": "wrong password"},
+        )
+        assert response.status_code == 401
+    limited = client.post(
+        "/api/auth/login",
+        json={"email": "ana@example.com", "password": "wrong password"},
+    )
+    assert limited.status_code == 429
