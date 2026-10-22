@@ -35,12 +35,13 @@ def to_response(db: Session, account: Account, balance: Decimal | None = None) -
 @router.get("", response_model=list[AccountResponse])
 def list_accounts(context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
     accounts = db.query(Account).filter(Account.user_id == context.user.id, Account.is_archived.is_(False)).order_by(Account.name).all()
-    balances = dict(
-        db.query(AccountMovement.account_id, func.coalesce(func.sum(AccountMovement.amount), 0))
+    balances: dict[int, Decimal] = {
+        int(row[0]): Decimal(row[1])
+        for row in db.query(AccountMovement.account_id, func.coalesce(func.sum(AccountMovement.amount), 0))
         .filter(AccountMovement.account_id.in_([account.id for account in accounts]))
         .group_by(AccountMovement.account_id)
         .all()
-    ) if accounts else {}
+    } if accounts else {}
     return [to_response(db, account, Decimal(account.opening_balance) + Decimal(balances.get(account.id, 0))) for account in accounts]
 
 

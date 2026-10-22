@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuthContext, get_auth_context, require_csrf
 from app.api.loan_schemas import LoanCreate, LoanInstallmentResponse, LoanPaymentCreate, LoanPaymentResponse, LoanResponse, LoanUpdate
 from app.db.session import get_db
 from app.domain.money import normalize_amount
-from app.models.loans import Loan, LoanInstallment, LoanPayment
+from app.models.loans import Loan, LoanInstallment
 from app.services.loans import close_loan, create_loan, create_payment, get_owned_loan, outstanding_principal
 from app.domain.enums import TransactionStatus
 from app.api.pagination import Pagination

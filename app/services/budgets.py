@@ -1,16 +1,14 @@
 from calendar import monthrange
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.budget_schemas import BudgetCreate
-from app.domain.money import normalize_amount, normalize_currency
+from app.domain.money import normalize_amount
 from app.models.budgets import Alert, Budget
-from app.models.cards import CardMovement
-from app.models.ledger import Account, Category, FinancialTransaction
+from app.models.ledger import FinancialTransaction
 from app.domain.enums import BudgetPeriod, BudgetScope, BudgetType, TransactionStatus, TransactionType
 
 _FAR_PAST = date(2000, 1, 1)

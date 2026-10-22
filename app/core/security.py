@@ -30,4 +30,6 @@ def new_session_values() -> tuple[str, str, str, datetime]:
 
 
 def tokens_match(expected: str, received: str | None) -> bool:
-    return bool(received) and hmac.compare_digest(expected, received)
+    if not received:
+        return False
+    return hmac.compare_digest(expected, received)

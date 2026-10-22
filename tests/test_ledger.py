@@ -1,4 +1,3 @@
-from datetime import date
 
 
 def register(client, email="ana@example.com"):

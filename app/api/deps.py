@@ -25,8 +25,10 @@ def get_auth_context(request: Request, db: Session = Depends(get_db)) -> AuthCon
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     session = db.query(AuthSession).filter(AuthSession.token_hash == token_hash).one_or_none()
     now = datetime.now(timezone.utc)
-    expires_at = session.expires_at.replace(tzinfo=timezone.utc) if session and session.expires_at.tzinfo is None else session.expires_at if session else None
-    if session is None or session.revoked_at is not None or expires_at <= now:
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesión inválida o expirada")
+    expires_at = session.expires_at.replace(tzinfo=timezone.utc) if session.expires_at.tzinfo is None else session.expires_at
+    if session.revoked_at is not None or expires_at <= now:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesión inválida o expirada")
     if not session.user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario inactivo")

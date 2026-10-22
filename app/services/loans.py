@@ -1,13 +1,13 @@
 from decimal import Decimal
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.loan_schemas import LoanCreate, LoanPaymentCreate
 from app.domain.loans import amortization_schedule
 from app.domain.money import normalize_amount, normalize_currency
-from app.models.ledger import Account, AccountMovement, Category, FinancialTransaction
+from app.models.ledger import AccountMovement, Category, FinancialTransaction
 from app.models.loans import Loan, LoanInstallment, LoanMovement, LoanPayment
 from app.services.ledger import create_operation, get_owned_account, get_owned_category, not_found
 from app.domain.enums import InstallmentStatus, LoanStatus, TransactionStatus
@@ -88,6 +88,8 @@ def create_loan(db: Session, user_id: int, payload: LoanCreate) -> Loan:
     if source:
         db.add(AccountMovement(operation_id=operation.id, account_id=source.id, amount=principal, currency=currency))
     if payload.record_as_income:
+        if source is None or income_category is None:
+            raise HTTPException(status_code=422, detail="El préstamo requiere una cuenta y categoría de ingreso")
         db.add(FinancialTransaction(
             operation_id=operation.id,
             user_id=user_id,

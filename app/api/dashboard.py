@@ -89,12 +89,13 @@ def dashboard(
     loans = []
     active_loans = db.query(Loan).filter(Loan.user_id == context.user.id, Loan.status == TransactionStatus.ACTIVE).all()
     loan_ids = [loan.id for loan in active_loans]
-    loan_balances = dict(
-        db.query(LoanMovement.loan_id, func.coalesce(func.sum(LoanMovement.amount), 0))
+    loan_balances: dict[int, Decimal] = {
+        int(row[0]): Decimal(row[1])
+        for row in db.query(LoanMovement.loan_id, func.coalesce(func.sum(LoanMovement.amount), 0))
         .filter(LoanMovement.loan_id.in_(loan_ids))
         .group_by(LoanMovement.loan_id)
         .all()
-    ) if loan_ids else {}
+    } if loan_ids else {}
     for loan in active_loans:
         loans.append({
             "id": loan.id,
@@ -112,7 +113,7 @@ def dashboard(
     card_names = {c.id: c.name for c in cards}
     transaction_list = []
     for item in recent:
-        source = account_names.get(item.account_id) if item.account_id else card_names.get(item.card_id, "")
+        source = account_names.get(item.account_id) if item.account_id is not None else (card_names.get(item.card_id, "") if item.card_id is not None else "")
         transaction_list.append({
             "id": item.id,
             "transaction_type": item.transaction_type,

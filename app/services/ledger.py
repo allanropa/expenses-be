@@ -5,7 +5,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.ledger_schemas import AccountCreate, BalanceAdjustmentCreate, TransactionCreate, TransactionUpdate, TransferCreate
+from app.api.ledger_schemas import AccountCreate, BalanceAdjustmentCreate, TransactionCreate, TransferCreate
 from app.domain.money import normalize_amount, normalize_currency
 from app.models.ledger import Account, AccountMovement, Category, FinancialOperation, FinancialTransaction, Transfer
 from app.domain.enums import CategoryKind, OperationStatus, TransactionType
@@ -107,6 +107,8 @@ def reverse_transaction(db: Session, user_id: int, transaction: FinancialTransac
     if transaction.card_id is not None or transaction.credit_purchase_id is not None:
         _reverse_credit_transaction(db, user_id, transaction)
         return
+    if transaction.account_id is None:
+        raise HTTPException(status_code=422, detail="La transacción no tiene una cuenta asociada")
     account = get_owned_account(db, user_id, transaction.account_id)
     operation = db.query(FinancialOperation).filter(FinancialOperation.id == transaction.operation_id, FinancialOperation.user_id == user_id).one()
     original_movement = db.query(AccountMovement).filter(AccountMovement.operation_id == operation.id).one()

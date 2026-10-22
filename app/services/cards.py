@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.card_schemas import CardBalanceAdjustmentCreate, CardChargeCreate, CardCreate, PaymentCreate, PurchaseCreate
@@ -19,7 +19,7 @@ from app.models.cards import (
     Installment,
     InterestRateConfiguration,
 )
-from app.models.ledger import Account, AccountMovement, Category, FinancialOperation, FinancialTransaction
+from app.models.ledger import AccountMovement, Category, FinancialTransaction
 from app.services.ledger import create_operation, get_owned_account, get_owned_category, not_found
 
 
@@ -191,6 +191,7 @@ def create_payment(db: Session, user_id: int, payload: PaymentCreate, idempotenc
     if source_account:
         source_currency = source_account.currency
         source_amount = normalize_amount(payload.source_amount or payload.obligation_amount, source_currency)
+        assert source_amount is not None
         if source_currency == obligation_currency:
             if source_amount != obligation_amount:
                 raise HTTPException(status_code=422, detail="El monto de origen debe coincidir con el pago")
@@ -234,6 +235,8 @@ def create_payment(db: Session, user_id: int, payload: PaymentCreate, idempotenc
         remaining -= applied
     db.flush()
     if source_account:
+        assert source_currency is not None
+        assert source_amount is not None
         payment_operation = create_operation(db, user_id, "card_principal_payment", payload.payment_date)
         total_source = source_amount + (fee_amount or 0)
         db.add(AccountMovement(operation_id=payment_operation.id, account_id=source_account.id, amount=-total_source, currency=source_currency))
@@ -253,6 +256,8 @@ def create_payment(db: Session, user_id: int, payload: PaymentCreate, idempotenc
             description=f"Pago tarjeta: {card.name}",
         ))
     if payload.extra_charges and source_account:
+        assert source_currency is not None
+        assert exchange_rate is not None or source_currency == obligation_currency
         for charge in payload.extra_charges:
             category = get_owned_category(db, user_id, charge.category_id)
             ec_amount = normalize_amount(charge.amount, obligation_currency)
@@ -260,6 +265,7 @@ def create_payment(db: Session, user_id: int, payload: PaymentCreate, idempotenc
             if source_currency == obligation_currency:
                 deduction = ec_amount
             else:
+                assert exchange_rate is not None
                 deduction = normalize_amount(ec_amount * exchange_rate, source_currency)
             db.add(AccountMovement(operation_id=charge_operation.id, account_id=source_account.id, amount=-deduction, currency=source_currency))
             db.add(FinancialTransaction(

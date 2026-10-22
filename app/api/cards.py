@@ -23,7 +23,7 @@ from app.api.card_schemas import (
 from app.api.deps import AuthContext, get_auth_context, require_csrf
 from app.db.session import get_db
 from app.domain.cards import card_debt
-from app.domain.financing import add_months, closing_date_for_month, first_statement_closing_date
+from app.domain.financing import add_months, closing_date_for_month
 from app.domain.money import normalize_amount
 from app.models.cards import (
     CardCharge,
@@ -83,7 +83,7 @@ def card_responses(db: Session, cards: list[CreditCard]) -> list[CardResponse]:
         .group_by(CardMovement.card_id, CardMovement.currency)
         .all()
     }
-    rates = {}
+    rates: dict[int, list[InterestRateConfiguration]] = {}
     for rate in db.query(InterestRateConfiguration).filter(InterestRateConfiguration.card_id.in_(card_ids)).order_by(
         InterestRateConfiguration.effective_from.desc(), InterestRateConfiguration.id.desc()
     ).all():

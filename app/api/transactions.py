@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from sqlalchemy.orm import Session
@@ -121,18 +122,20 @@ def update_transaction(
             status_code=422,
             detail="Las transacciones generadas por tarjetas no se pueden editar; elimínelas o modifique la operación de origen",
         )
-    values = {
-        "transaction_type": payload.transaction_type or original.transaction_type,
-        "amount": payload.amount if payload.amount is not None else original.amount,
-        "currency": payload.currency or original.currency,
-        "transaction_date": payload.transaction_date or original.transaction_date,
-        "account_id": payload.account_id or original.account_id,
-        "category_id": payload.category_id or original.category_id,
-        "description": payload.description if payload.description is not None else original.description,
-        "notes": payload.notes if payload.notes is not None else original.notes,
-    }
+    if original.account_id is None or original.category_id is None:
+        raise HTTPException(status_code=422, detail="La transacción no tiene referencias completas")
+    replacement_payload = TransactionCreate(
+        transaction_type=cast(Literal["income", "expense"], payload.transaction_type or original.transaction_type),
+        amount=payload.amount if payload.amount is not None else original.amount,
+        currency=payload.currency or original.currency,
+        transaction_date=payload.transaction_date or original.transaction_date,
+        account_id=payload.account_id or original.account_id,
+        category_id=payload.category_id or original.category_id,
+        description=payload.description if payload.description is not None else original.description,
+        notes=payload.notes if payload.notes is not None else original.notes,
+    )
     reverse_transaction(db, context.user.id, original, "update")
-    replacement = create_transaction(db, context.user.id, TransactionCreate(**values))
+    replacement = create_transaction(db, context.user.id, replacement_payload)
     original.replaced_by_id = replacement.id
     db.commit()
     db.refresh(replacement)

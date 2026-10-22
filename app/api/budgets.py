@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/budgets", tags=["budgets"])
 def validate_budget_target(
     db: Session,
     user_id: int,
-    scope: str,
+    scope: BudgetScope | str,
     category_id: int | None,
     account_id: int | None,
     card_id: int | None,
@@ -29,13 +29,13 @@ def validate_budget_target(
         BudgetScope.CATEGORY: (Category, category_id, "Categoría"),
         BudgetScope.ACCOUNT: (Account, account_id, "Cuenta"),
         BudgetScope.CARD: (CreditCard, card_id, "Tarjeta"),
-    }.get(scope)
+    }.get(BudgetScope(scope))
     if target is None:
         return
     model, target_id, label = target
     if target_id is None:
         return
-    if db.query(model).filter(model.id == target_id, model.user_id == user_id).one_or_none() is None:
+    if db.query(model).filter(model.id == target_id, model.user_id == user_id).one_or_none() is None:  # type: ignore[attr-defined]
         raise HTTPException(status_code=404, detail=f"{label} no encontrada")
 
 

@@ -1,4 +1,3 @@
-from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from app.domain.money import normalize_currency
