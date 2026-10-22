@@ -1,6 +1,8 @@
 **/__pycache__
 __pycache__
 .env
+.env.*
+!.env.example
 *.db
 .venv/
 .pytest_cache/
