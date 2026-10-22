@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.card_schemas import (
@@ -27,6 +28,7 @@ from app.domain.money import normalize_amount
 from app.models.cards import (
     CardCharge,
     CardCurrency,
+    CardMovement,
     CardPayment,
     CreditCard,
     CreditPurchase,
@@ -63,6 +65,50 @@ def card_response(db: Session, card: CreditCard) -> CardResponse:
             .all()
         ],
     )
+
+
+def card_responses(db: Session, cards: list[CreditCard]) -> list[CardResponse]:
+    if not cards:
+        return []
+    card_ids = [card.id for card in cards]
+    currencies = db.query(CardCurrency).filter(CardCurrency.card_id.in_(card_ids)).order_by(CardCurrency.currency).all()
+    debts = {
+        (card_id, currency): amount
+        for card_id, currency, amount in db.query(
+            CardMovement.card_id,
+            CardMovement.currency,
+            func.coalesce(func.sum(CardMovement.amount), 0),
+        )
+        .filter(CardMovement.card_id.in_(card_ids))
+        .group_by(CardMovement.card_id, CardMovement.currency)
+        .all()
+    }
+    rates = {}
+    for rate in db.query(InterestRateConfiguration).filter(InterestRateConfiguration.card_id.in_(card_ids)).order_by(
+        InterestRateConfiguration.effective_from.desc(), InterestRateConfiguration.id.desc()
+    ).all():
+        rates.setdefault(rate.card_id, []).append(rate)
+    currencies_by_card: dict[int, list[CardCurrency]] = {}
+    for item in currencies:
+        currencies_by_card.setdefault(item.card_id, []).append(item)
+    responses = []
+    for card in cards:
+        response_currencies = []
+        for item in currencies_by_card.get(card.id, []):
+            debt = normalize_amount(debts.get((card.id, item.currency), 0), item.currency, positive=False)
+            available = normalize_amount(item.credit_limit - debt, item.currency, positive=False) if item.credit_limit is not None else None
+            response_currencies.append(CardCurrencyResponse(currency=item.currency, credit_limit=item.credit_limit, outstanding_debt=debt, available_credit=available))
+        responses.append(CardResponse(
+            id=card.id,
+            name=card.name,
+            issuing_bank=card.issuing_bank,
+            statement_closing_day=card.statement_closing_day,
+            description=card.description,
+            is_archived=card.is_archived,
+            currencies=response_currencies,
+            interest_rates=[InterestConfigResponse.model_validate(item, from_attributes=True) for item in rates.get(card.id, [])],
+        ))
+    return responses
 
 
 def purchase_response(db: Session, purchase: CreditPurchase) -> PurchaseResponse:
@@ -102,7 +148,7 @@ def payment_response(payment: CardPayment) -> PaymentResponse:
 @router.get("", response_model=list[CardResponse])
 def list_cards(context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
     cards = db.query(CreditCard).filter(CreditCard.user_id == context.user.id, CreditCard.is_archived.is_(False)).order_by(CreditCard.name).all()
-    return [card_response(db, card) for card in cards]
+    return card_responses(db, cards)
 
 
 @router.post("", response_model=CardResponse, status_code=status.HTTP_201_CREATED)
