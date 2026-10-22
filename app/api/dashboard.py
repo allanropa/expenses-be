@@ -12,7 +12,7 @@ from app.models.budgets import Budget
 from app.models.cards import CardCurrency, CardMovement, CreditCard
 from app.models.ledger import Account, FinancialTransaction
 from app.models.loans import Loan, LoanMovement
-from app.services.budgets import calculate_summary
+from app.services.budgets import calculate_summary, summary_period
 from app.services.ledger import account_balance
 from app.domain.enums import BudgetPeriod, TransactionStatus, TransactionType
 
@@ -68,12 +68,24 @@ def dashboard(
         if item.card_id == card.id
     ]
     budgets = []
-    for budget in db.query(Budget).filter(Budget.user_id == context.user.id, Budget.is_archived.is_(False)).all():
-        if budget.end_date >= period_start and budget.start_date <= period_end:
-            if budget.period_type != BudgetPeriod.CUSTOM:
-                budgets.append({**calculate_summary(db, budget), "name": budget.name})
-            else:
-                budgets.append({**calculate_summary(db, budget, period_start, period_end), "name": budget.name})
+    budget_items = db.query(Budget).filter(Budget.user_id == context.user.id, Budget.is_archived.is_(False)).all()
+    relevant_budgets = [budget for budget in budget_items if budget.end_date >= period_start and budget.start_date <= period_end]
+    ranges = [summary_period(budget, period_start, period_end) for budget in relevant_budgets]
+    if ranges:
+        budget_transactions = db.query(FinancialTransaction).filter(
+            FinancialTransaction.user_id == context.user.id,
+            FinancialTransaction.transaction_type == TransactionType.EXPENSE,
+            FinancialTransaction.status == TransactionStatus.ACTIVE,
+            FinancialTransaction.transaction_date >= min(start for start, _ in ranges),
+            FinancialTransaction.transaction_date <= max(end for _, end in ranges),
+        ).all()
+    else:
+        budget_transactions = []
+    for budget in relevant_budgets:
+        if budget.period_type != BudgetPeriod.CUSTOM:
+            budgets.append({**calculate_summary(db, budget, pool=budget_transactions), "name": budget.name})
+        else:
+            budgets.append({**calculate_summary(db, budget, period_start, period_end, budget_transactions), "name": budget.name})
     loans = []
     active_loans = db.query(Loan).filter(Loan.user_id == context.user.id, Loan.status == TransactionStatus.ACTIVE).all()
     loan_ids = [loan.id for loan in active_loans]

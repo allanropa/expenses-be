@@ -27,48 +27,46 @@ def eligible_days(start: date, end: date, weekdays: list[int] | None) -> int:
     return count
 
 
-def budget_transactions(db: Session, budget: Budget, start: date, end: date):
-    query = db.query(FinancialTransaction).filter(
-        FinancialTransaction.user_id == budget.user_id,
-        FinancialTransaction.transaction_type == TransactionType.EXPENSE,
-        FinancialTransaction.status == TransactionStatus.ACTIVE,
-        FinancialTransaction.payment_method == budget.spending_type,
-        FinancialTransaction.currency == budget.currency,
-        FinancialTransaction.transaction_date >= start,
-        FinancialTransaction.transaction_date <= end,
-    )
-    if budget.scope == BudgetScope.CATEGORY:
-        query = query.filter(FinancialTransaction.category_id == budget.category_id)
-    elif budget.scope == BudgetScope.ACCOUNT:
-        query = query.filter(FinancialTransaction.account_id == budget.account_id)
-    elif budget.scope == BudgetScope.CARD:
-        query = query.filter(FinancialTransaction.card_id == budget.card_id)
-    return query.order_by(
-        FinancialTransaction.transaction_date, FinancialTransaction.id
-    ).all()
+def budget_transactions(db: Session, budget: Budget, start: date, end: date, pool=None):
+    if pool is None:
+        pool = db.query(FinancialTransaction).filter(
+            FinancialTransaction.user_id == budget.user_id,
+            FinancialTransaction.transaction_type == TransactionType.EXPENSE,
+            FinancialTransaction.status == TransactionStatus.ACTIVE,
+            FinancialTransaction.payment_method == budget.spending_type,
+            FinancialTransaction.currency == budget.currency,
+            FinancialTransaction.transaction_date >= start,
+            FinancialTransaction.transaction_date <= end,
+        ).all()
+    transactions = [item for item in pool if (
+        item.user_id == budget.user_id
+        and item.transaction_type == TransactionType.EXPENSE
+        and item.status == TransactionStatus.ACTIVE
+        and item.payment_method == budget.spending_type
+        and item.currency == budget.currency
+        and start <= item.transaction_date <= end
+        and (budget.scope != BudgetScope.CATEGORY or item.category_id == budget.category_id)
+        and (budget.scope != BudgetScope.ACCOUNT or item.account_id == budget.account_id)
+        and (budget.scope != BudgetScope.CARD or item.card_id == budget.card_id)
+    )]
+    return sorted(transactions, key=lambda item: (item.transaction_date, item.id))
 
 
 def _is_recurring(budget: Budget) -> bool:
     return budget.period_type != BudgetPeriod.CUSTOM
 
 
-def calculate_summary(
-    db: Session, budget: Budget, start: date | None = None, end: date | None = None
-):
+def summary_period(budget: Budget, start: date | None = None, end: date | None = None) -> tuple[date, date]:
     today = date.today()
     if budget.period_type == BudgetPeriod.DAILY:
-        period_start = start or today
-        period_end = end or today
+        period_start, period_end = start or today, end or today
     elif budget.period_type == BudgetPeriod.MONTHLY:
-        period_start = start or today.replace(day=1)
-        period_end = end or today
+        period_start, period_end = start or today.replace(day=1), end or today
     elif budget.period_type == BudgetPeriod.WEEKLY:
         monday = today - timedelta(days=today.weekday())
-        period_start = start or monday
-        period_end = end or monday + timedelta(days=6)
+        period_start, period_end = start or monday, end or monday + timedelta(days=6)
     else:
-        period_start = start or budget.start_date
-        period_end = end or budget.end_date
+        period_start, period_end = start or budget.start_date, end or budget.end_date
     if budget.budget_type == BudgetType.MAXIMUM:
         if budget.period_type == BudgetPeriod.MONTHLY:
             period_end = today.replace(day=monthrange(today.year, today.month)[1])
@@ -76,13 +74,18 @@ def calculate_summary(
             period_end = today + timedelta(days=6 - today.weekday())
         elif budget.period_type == BudgetPeriod.DAILY:
             period_end = today
-    period_start = max(period_start, budget.start_date)
-    period_end = min(period_end, budget.end_date)
+    return max(period_start, budget.start_date), min(period_end, budget.end_date)
+
+
+def calculate_summary(
+    db: Session, budget: Budget, start: date | None = None, end: date | None = None, pool=None
+):
+    period_start, period_end = summary_period(budget, start, end)
     if period_end < period_start:
         raise HTTPException(
             status_code=422, detail="El período consultado no intersecta el presupuesto"
         )
-    transactions = budget_transactions(db, budget, period_start, period_end)
+    transactions = budget_transactions(db, budget, period_start, period_end, pool)
     actual = sum((Decimal(item.amount) for item in transactions), Decimal("0"))
     if budget.budget_type == BudgetType.DAILY:
         accumulated = Decimal(budget.target_amount) * eligible_days(
