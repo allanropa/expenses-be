@@ -82,6 +82,8 @@ def create_transaction(
         amount = normalize_amount(payload.amount, account.currency)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if payload.transaction_type == TransactionType.EXPENSE and account_balance(db, account) < amount:
+        raise HTTPException(status_code=422, detail="El gasto supera el saldo disponible de la cuenta")
 
     operation = create_operation(db, user_id, payload.transaction_type, payload.transaction_date, idempotency_key)
     signed_amount = amount if payload.transaction_type == TransactionType.INCOME else -amount

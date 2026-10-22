@@ -10,7 +10,7 @@ from app.api.deps import AuthContext, get_auth_context
 from app.db.session import get_db
 from app.models.budgets import Budget
 from app.models.cards import CardCurrency, CardMovement, CreditCard
-from app.models.ledger import Account, FinancialTransaction
+from app.models.ledger import Account, FinancialOperation, FinancialTransaction, Transfer
 from app.models.loans import Loan, LoanMovement
 from app.services.budgets import calculate_summary, summary_period
 from app.services.ledger import account_balance
@@ -108,14 +108,41 @@ def dashboard(
     recent = db.query(FinancialTransaction).filter(
         FinancialTransaction.user_id == context.user.id,
         FinancialTransaction.status == TransactionStatus.ACTIVE,
-    ).order_by(FinancialTransaction.transaction_date.desc(), FinancialTransaction.id.desc()).limit(20).all()
+    ).limit(20).all()
+    recent_transfers = db.query(Transfer, FinancialOperation.created_at).join(
+        FinancialOperation, Transfer.operation_id == FinancialOperation.id,
+    ).filter(Transfer.user_id == context.user.id).limit(20).all()
     account_names = {a.id: a.name for a in accounts}
     card_names = {c.id: c.name for c in cards}
+    recent_entries = [(item.transaction_date, item.created_at, item.id, "transaction", item) for item in recent]
+    recent_entries.extend(
+        (item.transfer_date, created_at, item.id, "transfer", item)
+        for item, created_at in recent_transfers
+    )
+    recent_entries.sort(key=lambda entry: (entry[0], entry[1], entry[2]), reverse=True)
     transaction_list = []
-    for item in recent:
+    for _, _, _, entry_type, item in recent_entries[:20]:
+        if entry_type == "transfer":
+            transaction_list.append({
+                "id": item.id,
+                "entry_type": "transfer",
+                "transaction_type": "transfer",
+                "amount": item.source_amount,
+                "currency": item.source_currency,
+                "original_amount": item.destination_amount,
+                "original_currency": item.destination_currency,
+                "transaction_date": item.transfer_date,
+                "payment_method": "transfer",
+                "description": item.description,
+                "category_id": None,
+                "source": account_names.get(item.source_account_id, f"Cuenta #{item.source_account_id}"),
+                "destination": account_names.get(item.destination_account_id, f"Cuenta #{item.destination_account_id}"),
+            })
+            continue
         source = account_names.get(item.account_id) if item.account_id is not None else (card_names.get(item.card_id, "") if item.card_id is not None else "")
         transaction_list.append({
             "id": item.id,
+            "entry_type": "transaction",
             "transaction_type": item.transaction_type,
             "amount": item.amount,
             "currency": item.currency,
@@ -126,6 +153,7 @@ def dashboard(
             "description": item.description,
             "category_id": item.category_id,
             "source": source,
+            "destination": None,
         })
     return {
         "period": {"start": period_start, "end": period_end},

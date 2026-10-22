@@ -106,6 +106,7 @@ class TransactionUpdate(BaseModel):
 
 class TransactionResponse(BaseModel):
     id: int
+    entry_type: Literal["transaction", "transfer"] = "transaction"
     transaction_type: str
     amount: Decimal
     currency: str
@@ -115,7 +116,8 @@ class TransactionResponse(BaseModel):
     account_id: int | None
     card_id: int | None
     credit_purchase_id: int | None
-    category_id: int
+    category_id: int | None
+    destination_account_id: int | None = None
     payment_method: str
     description: str | None
     notes: str | None

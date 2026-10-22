@@ -86,6 +86,29 @@ def test_defaults_accounts_transactions_and_reversible_delete(client):
     assert client.get("/api/transactions?limit=0").status_code == 422
 
 
+def test_expense_cannot_exceed_account_balance(client):
+    csrf = register(client)
+    checking = account(client, csrf, opening_balance="100")
+    category = next(item for item in client.get("/api/categories").json() if item["name"] == "Alimentación")
+
+    response = client.post(
+        "/api/transactions",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "transaction_type": "expense",
+            "amount": "101",
+            "currency": "COP",
+            "transaction_date": "2026-01-05",
+            "account_id": checking["id"],
+            "category_id": category["id"],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "El gasto supera el saldo disponible de la cuenta"
+    assert client.get("/api/accounts").json()[0]["current_balance"] == "100"
+
+
 def test_transfer_is_atomic_and_multicurrency_is_explicit(client):
     csrf = register(client)
     source = account(client, csrf, "COP", "COP", "1000000")
@@ -117,6 +140,12 @@ def test_transfer_is_atomic_and_multicurrency_is_explicit(client):
     assert transfer.status_code == 201, transfer.text
     assert client.get("/api/accounts").json()[0]["current_balance"] == "900000"
     assert client.get("/api/accounts").json()[1]["current_balance"] == "25.00"
+    listed = client.get("/api/transactions").json()
+    assert listed[0]["entry_type"] == "transfer"
+    assert listed[0]["destination_account_id"] == destination["id"]
+    recent = client.get("/api/dashboard").json()["recent_transactions"]
+    assert recent[0]["entry_type"] == "transfer"
+    assert recent[0]["destination"] == destination["name"]
 
 
 def test_account_and_transaction_are_isolated_between_users(client):

@@ -2,12 +2,13 @@ from datetime import date
 from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from sqlalchemy import Integer, cast as sql_cast, literal, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuthContext, get_auth_context, require_csrf
 from app.api.ledger_schemas import TransactionCreate, TransactionResponse, TransactionUpdate
 from app.db.session import get_db
-from app.models.ledger import FinancialOperation, FinancialTransaction
+from app.models.ledger import FinancialOperation, FinancialTransaction, Transfer
 from app.services.ledger import create_transaction, reverse_transaction
 from app.domain.enums import TransactionStatus
 from app.api.pagination import Pagination
@@ -20,6 +21,7 @@ def response_for(transaction: FinancialTransaction) -> TransactionResponse:
 
     return TransactionResponse(
         id=transaction.id,
+        entry_type="transaction",
         transaction_type=transaction.transaction_type,
         amount=normalize_amount(transaction.amount, transaction.currency),
         currency=transaction.currency,
@@ -30,10 +32,35 @@ def response_for(transaction: FinancialTransaction) -> TransactionResponse:
         card_id=transaction.card_id,
         credit_purchase_id=transaction.credit_purchase_id,
         category_id=transaction.category_id,
+        destination_account_id=None,
         payment_method=transaction.payment_method,
         description=transaction.description,
         notes=transaction.notes,
         status=transaction.status,
+    )
+
+
+def response_for_transfer(transfer: Transfer) -> TransactionResponse:
+    from app.domain.money import normalize_amount
+
+    return TransactionResponse(
+        id=transfer.id,
+        entry_type="transfer",
+        transaction_type="transfer",
+        amount=normalize_amount(transfer.source_amount, transfer.source_currency),
+        currency=transfer.source_currency,
+        original_amount=normalize_amount(transfer.destination_amount, transfer.destination_currency),
+        original_currency=transfer.destination_currency,
+        transaction_date=transfer.transfer_date,
+        account_id=transfer.source_account_id,
+        card_id=None,
+        credit_purchase_id=None,
+        category_id=None,
+        destination_account_id=transfer.destination_account_id,
+        payment_method="transfer",
+        description=transfer.description,
+        notes=None,
+        status="active",
     )
 
 
@@ -58,24 +85,72 @@ def list_transactions(
     context: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db),
 ):
-    query = db.query(FinancialTransaction).filter(
+    transaction_entries = select(
+        literal("transaction").label("entry_type"),
+        FinancialTransaction.id.label("id"),
+        FinancialTransaction.transaction_date.label("entry_date"),
+        FinancialTransaction.created_at.label("created_at"),
+        FinancialTransaction.transaction_type.label("transaction_type"),
+        FinancialTransaction.account_id.label("account_id"),
+        sql_cast(literal(None), Integer).label("destination_account_id"),
+        FinancialTransaction.description.label("description"),
+    ).where(
         FinancialTransaction.user_id == context.user.id,
         FinancialTransaction.status == TransactionStatus.ACTIVE,
     )
+    transfer_entries = select(
+        literal("transfer").label("entry_type"),
+        Transfer.id.label("id"),
+        Transfer.transfer_date.label("entry_date"),
+        FinancialOperation.created_at.label("created_at"),
+        literal("transfer").label("transaction_type"),
+        Transfer.source_account_id.label("account_id"),
+        Transfer.destination_account_id.label("destination_account_id"),
+        Transfer.description.label("description"),
+    ).where(
+        Transfer.user_id == context.user.id,
+        Transfer.operation_id == FinancialOperation.id,
+    )
+
     if date_from:
-        query = query.filter(FinancialTransaction.transaction_date >= date_from)
+        transaction_entries = transaction_entries.where(FinancialTransaction.transaction_date >= date_from)
+        transfer_entries = transfer_entries.where(Transfer.transfer_date >= date_from)
     if date_to:
-        query = query.filter(FinancialTransaction.transaction_date <= date_to)
-    if transaction_type:
-        query = query.filter(FinancialTransaction.transaction_type == transaction_type)
+        transaction_entries = transaction_entries.where(FinancialTransaction.transaction_date <= date_to)
+        transfer_entries = transfer_entries.where(Transfer.transfer_date <= date_to)
+    if transaction_type == "transfer":
+        transaction_entries = transaction_entries.where(literal(False))
+    elif transaction_type:
+        transaction_entries = transaction_entries.where(FinancialTransaction.transaction_type == transaction_type)
+        transfer_entries = transfer_entries.where(literal(False))
     if account_id:
-        query = query.filter(FinancialTransaction.account_id == account_id)
+        transaction_entries = transaction_entries.where(FinancialTransaction.account_id == account_id)
+        transfer_entries = transfer_entries.where(
+            or_(Transfer.source_account_id == account_id, Transfer.destination_account_id == account_id)
+        )
     if category_id:
-        query = query.filter(FinancialTransaction.category_id == category_id)
+        transaction_entries = transaction_entries.where(FinancialTransaction.category_id == category_id)
+        transfer_entries = transfer_entries.where(literal(False))
     if search:
-        query = query.filter(FinancialTransaction.description.ilike(f"%{search}%"))
-    items = query.order_by(FinancialTransaction.transaction_date.desc(), FinancialTransaction.id.desc()).offset(pagination.offset).limit(pagination.limit).all()
-    return [response_for(item) for item in items]
+        transaction_entries = transaction_entries.where(FinancialTransaction.description.ilike(f"%{search}%"))
+        transfer_entries = transfer_entries.where(Transfer.description.ilike(f"%{search}%"))
+
+    entries = union_all(transaction_entries, transfer_entries).subquery()
+    rows = db.execute(
+        select(entries)
+        .order_by(entries.c.entry_date.desc(), entries.c.created_at.desc(), entries.c.id.desc())
+        .offset(pagination.offset)
+        .limit(pagination.limit)
+    ).mappings().all()
+    result = []
+    for row in rows:
+        if row["entry_type"] == "transaction":
+            item = db.query(FinancialTransaction).filter(FinancialTransaction.id == row["id"]).one()
+            result.append(response_for(item))
+        else:
+            transfer = db.query(Transfer).filter(Transfer.id == row["id"]).one()
+            result.append(response_for_transfer(transfer))
+    return result
 
 
 @router.post("", response_model=TransactionResponse, status_code=status.HTTP_201_CREATED)
