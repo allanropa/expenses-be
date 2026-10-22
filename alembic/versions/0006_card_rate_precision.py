@@ -10,10 +10,14 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.alter_column("interest_rate_configurations", "monthly_rate", existing_type=sa.Numeric(12, 8), type_=sa.Numeric(20, 12), existing_nullable=False)
-    op.alter_column("credit_purchases", "monthly_interest_rate", existing_type=sa.Numeric(12, 8), type_=sa.Numeric(20, 12), existing_nullable=False)
+    with op.batch_alter_table("interest_rate_configurations", recreate="always") as batch:
+        batch.alter_column("monthly_rate", existing_type=sa.Numeric(12, 8), type_=sa.Numeric(20, 12), existing_nullable=False)
+    with op.batch_alter_table("credit_purchases", recreate="always") as batch:
+        batch.alter_column("monthly_interest_rate", existing_type=sa.Numeric(12, 8), type_=sa.Numeric(20, 12), existing_nullable=False)
 
 
 def downgrade() -> None:
-    op.alter_column("credit_purchases", "monthly_interest_rate", existing_type=sa.Numeric(20, 12), type_=sa.Numeric(12, 8), existing_nullable=False)
-    op.alter_column("interest_rate_configurations", "monthly_rate", existing_type=sa.Numeric(20, 12), type_=sa.Numeric(12, 8), existing_nullable=False)
+    with op.batch_alter_table("credit_purchases", recreate="always") as batch:
+        batch.alter_column("monthly_interest_rate", existing_type=sa.Numeric(20, 12), type_=sa.Numeric(12, 8), existing_nullable=False)
+    with op.batch_alter_table("interest_rate_configurations", recreate="always") as batch:
+        batch.alter_column("monthly_rate", existing_type=sa.Numeric(20, 12), type_=sa.Numeric(12, 8), existing_nullable=False)

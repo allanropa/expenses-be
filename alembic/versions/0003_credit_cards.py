@@ -164,12 +164,13 @@ def upgrade() -> None:
     op.create_index("ix_card_movements_operation_id", "card_movements", ["operation_id"])
     op.create_index("ix_card_movements_card_id", "card_movements", ["card_id"])
 
-    op.alter_column("financial_transactions", "account_id", existing_type=sa.Integer(), nullable=True)
-    op.add_column("financial_transactions", sa.Column("card_id", sa.Integer(), nullable=True))
-    op.add_column("financial_transactions", sa.Column("credit_purchase_id", sa.Integer(), nullable=True))
-    op.add_column("financial_transactions", sa.Column("payment_method", sa.String(length=8), nullable=False, server_default="debit"))
-    op.create_foreign_key("fk_financial_transactions_card_id", "financial_transactions", "credit_cards", ["card_id"], ["id"], ondelete="RESTRICT")
-    op.create_foreign_key("fk_financial_transactions_purchase_id", "financial_transactions", "credit_purchases", ["credit_purchase_id"], ["id"], ondelete="RESTRICT")
+    with op.batch_alter_table("financial_transactions", recreate="always") as batch:
+        batch.alter_column("account_id", existing_type=sa.Integer(), nullable=True)
+        batch.add_column(sa.Column("card_id", sa.Integer(), nullable=True))
+        batch.add_column(sa.Column("credit_purchase_id", sa.Integer(), nullable=True))
+        batch.add_column(sa.Column("payment_method", sa.String(length=8), nullable=False, server_default="debit"))
+        batch.create_foreign_key("fk_financial_transactions_card_id", "credit_cards", ["card_id"], ["id"], ondelete="RESTRICT")
+        batch.create_foreign_key("fk_financial_transactions_purchase_id", "credit_purchases", ["credit_purchase_id"], ["id"], ondelete="RESTRICT")
     op.create_index("ix_financial_transactions_card_id", "financial_transactions", ["card_id"])
     op.create_index("ix_financial_transactions_credit_purchase_id", "financial_transactions", ["credit_purchase_id"])
 
@@ -177,12 +178,13 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_financial_transactions_credit_purchase_id", table_name="financial_transactions")
     op.drop_index("ix_financial_transactions_card_id", table_name="financial_transactions")
-    op.drop_constraint("fk_financial_transactions_purchase_id", "financial_transactions", type_="foreignkey")
-    op.drop_constraint("fk_financial_transactions_card_id", "financial_transactions", type_="foreignkey")
-    op.drop_column("financial_transactions", "payment_method")
-    op.drop_column("financial_transactions", "credit_purchase_id")
-    op.drop_column("financial_transactions", "card_id")
-    op.alter_column("financial_transactions", "account_id", existing_type=sa.Integer(), nullable=False)
+    with op.batch_alter_table("financial_transactions", recreate="always") as batch:
+        batch.drop_constraint("fk_financial_transactions_purchase_id", type_="foreignkey")
+        batch.drop_constraint("fk_financial_transactions_card_id", type_="foreignkey")
+        batch.drop_column("payment_method")
+        batch.drop_column("credit_purchase_id")
+        batch.drop_column("card_id")
+        batch.alter_column("account_id", existing_type=sa.Integer(), nullable=False)
     for index_name, table_name in [
         ("ix_card_movements_card_id", "card_movements"),
         ("ix_card_movements_operation_id", "card_movements"),
