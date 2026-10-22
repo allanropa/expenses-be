@@ -9,8 +9,12 @@ from app.db.session import engine
 
 app = FastAPI(title="Personal Expense Tracker API", version="0.1.0")
 
-# Configure CORS to allow frontend and localhost
-cors_origins = [app_settings.frontend_origin]
+# Configure CORS with an explicit origin allowlist.
+cors_origins = [
+    origin.strip()
+    for origin in app_settings.frontend_origins.split(",")
+    if origin.strip()
+] or [app_settings.frontend_origin]
 if app_settings.app_env == "development":
     cors_origins.extend([
         "http://localhost:5173",

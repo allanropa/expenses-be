@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     cookie_samesite: Literal["lax", "strict", "none"] = "lax"
     session_cookie_name: str = "expenses_session"
     frontend_origin: str = "http://localhost:5173"
+    frontend_origins: str = ""
 
     @model_validator(mode="after")
     def validate_production_security(self):
