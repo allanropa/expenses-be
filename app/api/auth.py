@@ -51,8 +51,14 @@ def set_session_cookie(response: Response, raw_token: str) -> None:
 
 @router.post("/register", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 def register(payload: RegisterRequest, response: Response, db: Session = Depends(get_db)) -> SessionResponse:
+    email = str(payload.email).lower()
+    if not settings.is_registration_email_allowed(email):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Este correo no está autorizado para registrarse",
+        )
     user = User(
-        email=str(payload.email).lower(),
+        email=email,
         password_hash=hash_password(payload.password),
         display_name=payload.display_name.strip(),
     )

@@ -12,6 +12,15 @@ class Settings(BaseSettings):
     session_cookie_name: str = "expenses_session"
     frontend_origin: str = "http://localhost:5173"
     frontend_origins: str = ""
+    registration_email_whitelist: str = ""
+
+    def is_registration_email_allowed(self, email: str) -> bool:
+        allowed_emails = {
+            item.strip().lower()
+            for item in self.registration_email_whitelist.split(",")
+            if item.strip()
+        }
+        return "*" in allowed_emails or email.lower() in allowed_emails
 
     @model_validator(mode="after")
     def validate_production_security(self):

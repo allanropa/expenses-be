@@ -1,3 +1,6 @@
+from app.core.config import settings
+
+
 def register(client, email="ana@example.com"):
     return client.post(
         "/api/auth/register",
@@ -20,6 +23,19 @@ def test_register_creates_session_and_default_settings(client):
 def test_duplicate_email_is_rejected(client):
     assert register(client).status_code == 201
     assert register(client).status_code == 409
+
+
+def test_registration_requires_a_whitelisted_email(client):
+    settings.registration_email_whitelist = "allowed@example.com, Other@Example.com"
+
+    assert register(client, "blocked@example.com").status_code == 403
+    assert register(client, "OTHER@example.com").status_code == 201
+
+
+def test_empty_registration_whitelist_blocks_registration(client):
+    settings.registration_email_whitelist = ""
+
+    assert register(client).status_code == 403
 
 
 def test_protected_mutations_require_csrf(client):

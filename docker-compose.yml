@@ -24,6 +24,7 @@ services:
       COOKIE_SECURE: "false"
       COOKIE_SAMESITE: lax
       FRONTEND_ORIGIN: http://localhost:5173
+      REGISTRATION_EMAIL_WHITELIST: ${REGISTRATION_EMAIL_WHITELIST:-}
     ports:
       - "8000:8000"
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]

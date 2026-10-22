@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.core.config import settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
@@ -10,6 +11,8 @@ from app.main import app
 
 @pytest.fixture()
 def client(tmp_path):
+    previous_whitelist = settings.registration_email_whitelist
+    settings.registration_email_whitelist = "*"
     database_url = f"sqlite:///{tmp_path / 'test.db'}"
     engine = create_engine(database_url, connect_args={"check_same_thread": False})
     TestingSession = sessionmaker(bind=engine, autocommit=False, autoflush=False, expire_on_commit=False)
@@ -27,3 +30,4 @@ def client(tmp_path):
         yield test_client
     app.dependency_overrides.clear()
     Base.metadata.drop_all(engine)
+    settings.registration_email_whitelist = previous_whitelist

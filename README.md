@@ -43,3 +43,10 @@ alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Las variables de entorno (`DATABASE_URL`, `COOKIE_SECURE`,
 `FRONTEND_ORIGIN`, etc.) las inyecta `docker-compose.yml` en la raíz.
+
+## Lista permitida de registros
+
+`REGISTRATION_EMAIL_WHITELIST` acepta correos separados por comas y compara sin
+distinguir mayúsculas de minúsculas. Los registros están bloqueados si la
+variable está vacía. Para desarrollo, `*` permite cualquier correo; en
+producción se recomienda configurar únicamente las direcciones autorizadas.
