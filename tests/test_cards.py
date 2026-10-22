@@ -186,6 +186,18 @@ def test_card_debt_adjustment_is_grouped_by_currency(client):
     assert Decimal(usd["outstanding_debt"]) == Decimal("0")
 
 
+def test_card_with_no_movements_has_zero_debt(client):
+    csrf = register(client)
+    response = client.post(
+        "/api/cards",
+        headers={"X-CSRF-Token": csrf},
+        json={"name": "Sin deuda", "statement_closing_day": 15, "currencies": [{"currency": "COP"}]},
+    )
+    assert response.status_code == 201, response.text
+    card = client.get("/api/cards").json()[0]
+    assert card["currencies"][0]["outstanding_debt"] == "0"
+
+
 def test_credit_purchase_transaction_can_be_deleted(client):
     csrf = register(client)
     categories = client.get("/api/categories").json()

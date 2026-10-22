@@ -13,6 +13,7 @@ def normalize_currency(currency: str) -> str:
 
 def normalize_amount(amount: Decimal, currency: str, *, positive: bool = True) -> Decimal:
     currency = normalize_currency(currency)
+    amount = Decimal(str(amount))
     if positive and amount <= 0:
         raise ValueError("El monto debe ser mayor que cero")
     quantum = Decimal(1).scaleb(-CURRENCIES[currency])
