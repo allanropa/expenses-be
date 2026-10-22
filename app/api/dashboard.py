@@ -3,18 +3,17 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuthContext, get_auth_context
 from app.db.session import get_db
-from app.domain.cards import card_debt
 from app.models.budgets import Budget
-from app.models.cards import CardCurrency, CreditCard
+from app.models.cards import CardCurrency, CardMovement, CreditCard
 from app.models.ledger import Account, FinancialTransaction
-from app.models.loans import Loan
+from app.models.loans import Loan, LoanMovement
 from app.services.budgets import calculate_summary
 from app.services.ledger import account_balance
-from app.services.loans import outstanding_principal
 from app.domain.enums import BudgetPeriod, TransactionStatus, TransactionType
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -50,10 +49,24 @@ def dashboard(
             expenses[item.currency] = expenses.get(item.currency, Decimal("0")) + Decimal(item.amount)
     accounts = db.query(Account).filter(Account.user_id == context.user.id, Account.is_archived.is_(False)).all()
     cards = db.query(CreditCard).filter(CreditCard.user_id == context.user.id, CreditCard.is_archived.is_(False)).all()
-    debt = []
-    for card in cards:
-        for currency in db.query(CardCurrency).filter(CardCurrency.card_id == card.id).all():
-            debt.append({"card_id": card.id, "card_name": card.name, "currency": currency.currency, "amount": card_debt(db, card.id, currency.currency)})
+    card_ids = [card.id for card in cards]
+    currencies = db.query(CardCurrency).filter(CardCurrency.card_id.in_(card_ids)).all() if card_ids else []
+    debt_rows = db.query(
+        CardCurrency.card_id,
+        CardCurrency.currency,
+        func.coalesce(func.sum(CardMovement.amount), 0),
+    ).outerjoin(
+        CardMovement,
+        (CardMovement.card_id == CardCurrency.card_id)
+        & (CardMovement.currency == CardCurrency.currency),
+    ).filter(CardCurrency.card_id.in_(card_ids)).group_by(CardCurrency.card_id, CardCurrency.currency).all() if card_ids else []
+    debts = {(row[0], row[1]): row[2] for row in debt_rows}
+    debt = [
+        {"card_id": card.id, "card_name": card.name, "currency": item.currency, "amount": debts[(card.id, item.currency)]}
+        for card in cards
+        for item in currencies
+        if item.card_id == card.id
+    ]
     budgets = []
     for budget in db.query(Budget).filter(Budget.user_id == context.user.id, Budget.is_archived.is_(False)).all():
         if budget.end_date >= period_start and budget.start_date <= period_end:
@@ -62,12 +75,20 @@ def dashboard(
             else:
                 budgets.append({**calculate_summary(db, budget, period_start, period_end), "name": budget.name})
     loans = []
-    for loan in db.query(Loan).filter(Loan.user_id == context.user.id, Loan.status == TransactionStatus.ACTIVE).all():
+    active_loans = db.query(Loan).filter(Loan.user_id == context.user.id, Loan.status == TransactionStatus.ACTIVE).all()
+    loan_ids = [loan.id for loan in active_loans]
+    loan_balances = dict(
+        db.query(LoanMovement.loan_id, func.coalesce(func.sum(LoanMovement.amount), 0))
+        .filter(LoanMovement.loan_id.in_(loan_ids))
+        .group_by(LoanMovement.loan_id)
+        .all()
+    ) if loan_ids else {}
+    for loan in active_loans:
         loans.append({
             "id": loan.id,
             "name": loan.name,
             "currency": loan.currency,
-            "outstanding": outstanding_principal(db, loan.id),
+            "outstanding": Decimal(loan_balances.get(loan.id, 0)),
             "monthly_rate": loan.monthly_rate,
             "annual_effective_rate": loan.annual_effective_rate,
         })

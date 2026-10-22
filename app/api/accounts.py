@@ -104,11 +104,24 @@ def account_movements(
 ):
     account = get_owned_account(db, context.user.id, account_id)
     movements = db.query(AccountMovement).filter(AccountMovement.account_id == account.id).order_by(AccountMovement.id.desc()).offset(pagination.offset).limit(pagination.limit).all()
+    operation_ids = [item.operation_id for item in movements]
+    operations = {
+        item.id: item
+        for item in db.query(FinancialOperation).filter(FinancialOperation.id.in_(operation_ids)).all()
+    } if operation_ids else {}
+    transactions = {
+        item.operation_id: item
+        for item in db.query(FinancialTransaction).filter(FinancialTransaction.operation_id.in_(operation_ids)).all()
+    } if operation_ids else {}
+    transfers = {
+        item.operation_id: item
+        for item in db.query(Transfer).filter(Transfer.operation_id.in_(operation_ids)).all()
+    } if operation_ids else {}
     result = []
     for item in movements:
-        operation = db.query(FinancialOperation).filter(FinancialOperation.id == item.operation_id).one()
-        transaction = db.query(FinancialTransaction).filter(FinancialTransaction.operation_id == operation.id).one_or_none()
-        transfer = db.query(Transfer).filter(Transfer.operation_id == operation.id).one_or_none()
+        operation = operations[item.operation_id]
+        transaction = transactions.get(operation.id)
+        transfer = transfers.get(operation.id)
         result.append(
             AccountMovementResponse(
                 id=item.id,
