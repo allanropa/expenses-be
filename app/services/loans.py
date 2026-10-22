@@ -10,10 +10,11 @@ from app.domain.money import normalize_amount, normalize_currency
 from app.models.ledger import Account, AccountMovement, Category, FinancialTransaction
 from app.models.loans import Loan, LoanInstallment, LoanMovement, LoanPayment
 from app.services.ledger import create_operation, get_owned_account, get_owned_category, not_found
+from app.domain.enums import TransactionStatus
 
 
 def get_owned_loan(db: Session, user_id: int, loan_id: int) -> Loan:
-    loan = db.query(Loan).filter(Loan.id == loan_id, Loan.user_id == user_id, Loan.status == "active").one_or_none()
+    loan = db.query(Loan).filter(Loan.id == loan_id, Loan.user_id == user_id, Loan.status == TransactionStatus.ACTIVE).one_or_none()
     if loan is None:
         raise not_found("Préstamo no encontrado")
     return loan
@@ -119,6 +120,8 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
         interest_paid = normalize_amount(payload.interest_paid, loan.currency, positive=False)
     else:
         interest_paid = min(Decimal(installment.interest_amount), scheduled_amount)
+    if interest_paid > scheduled_amount:
+        raise HTTPException(status_code=422, detail="El interés pagado no puede superar el monto programado")
     principal_paid = min(balance, scheduled_amount - interest_paid)
     total = scheduled_amount + extra
     if principal_paid + extra > balance:

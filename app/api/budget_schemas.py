@@ -1,22 +1,22 @@
 from datetime import date
 from decimal import Decimal
-from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 from app.domain.money import normalize_currency
+from app.domain.enums import BudgetPeriod, BudgetScope, BudgetType, SpendingType
 
 
 class BudgetCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    budget_type: Literal["maximum", "daily"]
+    budget_type: BudgetType
     target_amount: Decimal = Field(gt=0)
     currency: str = Field(min_length=3, max_length=3)
-    period_type: Literal["daily", "weekly", "monthly", "custom"] = "monthly"
+    period_type: BudgetPeriod = BudgetPeriod.MONTHLY
     start_date: date | None = None
     end_date: date | None = None
-    scope: Literal["general", "category", "account", "card"] = "general"
-    spending_type: Literal["debit", "credit"]
+    scope: BudgetScope = BudgetScope.GENERAL
+    spending_type: SpendingType
     category_id: int | None = None
     account_id: int | None = None
     card_id: int | None = None
@@ -25,17 +25,17 @@ class BudgetCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_budget(self):
-        if self.period_type == "custom" and (self.start_date is None or self.end_date is None):
+        if self.period_type == BudgetPeriod.CUSTOM and (self.start_date is None or self.end_date is None):
             raise ValueError("Un presupuesto personalizado requiere fecha de inicio y fin")
         if self.start_date is not None and self.end_date is not None and self.end_date < self.start_date:
             raise ValueError("El final del presupuesto no puede preceder al inicio")
-        if self.scope == "category" and self.category_id is None:
+        if self.scope == BudgetScope.CATEGORY and self.category_id is None:
             raise ValueError("Un presupuesto de categoría requiere una categoría")
-        if self.scope == "account" and self.account_id is None:
+        if self.scope == BudgetScope.ACCOUNT and self.account_id is None:
             raise ValueError("Un presupuesto de cuenta requiere una cuenta")
-        if self.scope == "card" and self.card_id is None:
+        if self.scope == BudgetScope.CARD and self.card_id is None:
             raise ValueError("Un presupuesto de tarjeta requiere una tarjeta")
-        if self.scope == "general" and any(value is not None for value in (self.category_id, self.account_id, self.card_id)):
+        if self.scope == BudgetScope.GENERAL and any(value is not None for value in (self.category_id, self.account_id, self.card_id)):
             raise ValueError("Un presupuesto general no puede tener un objetivo")
         if self.eligible_weekdays is not None and any(day not in range(7) for day in self.eligible_weekdays):
             raise ValueError("Los días elegibles deben estar entre 0 y 6")
@@ -65,12 +65,12 @@ class BudgetResponse(BaseModel):
 class BudgetUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     target_amount: Decimal | None = Field(default=None, gt=0)
-    budget_type: Literal["maximum", "daily"] | None = None
-    period_type: Literal["daily", "weekly", "monthly", "custom"] | None = None
+    budget_type: BudgetType | None = None
+    period_type: BudgetPeriod | None = None
     start_date: date | None = None
     end_date: date | None = None
-    scope: Literal["general", "category", "account", "card"] | None = None
-    spending_type: Literal["debit", "credit"] | None = None
+    scope: BudgetScope | None = None
+    spending_type: SpendingType | None = None
     category_id: int | None = None
     account_id: int | None = None
     card_id: int | None = None

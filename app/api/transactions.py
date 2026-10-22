@@ -8,6 +8,7 @@ from app.api.ledger_schemas import TransactionCreate, TransactionResponse, Trans
 from app.db.session import get_db
 from app.models.ledger import FinancialOperation, FinancialTransaction
 from app.services.ledger import create_transaction, reverse_transaction
+from app.domain.enums import TransactionStatus
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
@@ -56,7 +57,7 @@ def list_transactions(
 ):
     query = db.query(FinancialTransaction).filter(
         FinancialTransaction.user_id == context.user.id,
-        FinancialTransaction.status == "active",
+        FinancialTransaction.status == TransactionStatus.ACTIVE,
     )
     if date_from:
         query = query.filter(FinancialTransaction.transaction_date >= date_from)
@@ -108,7 +109,7 @@ def update_transaction(
     original = db.query(FinancialTransaction).filter(
         FinancialTransaction.id == transaction_id,
         FinancialTransaction.user_id == context.user.id,
-        FinancialTransaction.status == "active",
+        FinancialTransaction.status == TransactionStatus.ACTIVE,
     ).one_or_none()
     if original is None:
         raise HTTPException(status_code=404, detail="Transacción no encontrada")
@@ -139,7 +140,7 @@ def delete_transaction(
     transaction = db.query(FinancialTransaction).filter(
         FinancialTransaction.id == transaction_id,
         FinancialTransaction.user_id == context.user.id,
-        FinancialTransaction.status == "active",
+        FinancialTransaction.status == TransactionStatus.ACTIVE,
     ).one_or_none()
     if transaction is None:
         raise HTTPException(status_code=404, detail="Transacción no encontrada")

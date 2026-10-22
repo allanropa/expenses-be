@@ -15,6 +15,7 @@ from app.models.loans import Loan
 from app.services.budgets import calculate_summary
 from app.services.ledger import account_balance
 from app.services.loans import outstanding_principal
+from app.domain.enums import BudgetPeriod, TransactionStatus, TransactionType
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -36,16 +37,16 @@ def dashboard(
     period_start, period_end = selected_period(date_from, date_to)
     transactions = db.query(FinancialTransaction).filter(
         FinancialTransaction.user_id == context.user.id,
-        FinancialTransaction.status == "active",
+        FinancialTransaction.status == TransactionStatus.ACTIVE,
         FinancialTransaction.transaction_date >= period_start,
         FinancialTransaction.transaction_date <= period_end,
     ).all()
     income: dict[str, Decimal] = {}
     expenses: dict[str, Decimal] = {}
     for item in transactions:
-        if item.transaction_type == "income":
+        if item.transaction_type == TransactionType.INCOME:
             income[item.currency] = income.get(item.currency, Decimal("0")) + Decimal(item.amount)
-        elif item.transaction_type == "expense":
+        elif item.transaction_type == TransactionType.EXPENSE:
             expenses[item.currency] = expenses.get(item.currency, Decimal("0")) + Decimal(item.amount)
     accounts = db.query(Account).filter(Account.user_id == context.user.id, Account.is_archived.is_(False)).all()
     cards = db.query(CreditCard).filter(CreditCard.user_id == context.user.id, CreditCard.is_archived.is_(False)).all()
@@ -56,12 +57,12 @@ def dashboard(
     budgets = []
     for budget in db.query(Budget).filter(Budget.user_id == context.user.id, Budget.is_archived.is_(False)).all():
         if budget.end_date >= period_start and budget.start_date <= period_end:
-            if budget.period_type != "custom":
+            if budget.period_type != BudgetPeriod.CUSTOM:
                 budgets.append({**calculate_summary(db, budget), "name": budget.name})
             else:
                 budgets.append({**calculate_summary(db, budget, period_start, period_end), "name": budget.name})
     loans = []
-    for loan in db.query(Loan).filter(Loan.user_id == context.user.id, Loan.status == "active").all():
+    for loan in db.query(Loan).filter(Loan.user_id == context.user.id, Loan.status == TransactionStatus.ACTIVE).all():
         loans.append({
             "id": loan.id,
             "name": loan.name,
@@ -72,7 +73,7 @@ def dashboard(
         })
     recent = db.query(FinancialTransaction).filter(
         FinancialTransaction.user_id == context.user.id,
-        FinancialTransaction.status == "active",
+        FinancialTransaction.status == TransactionStatus.ACTIVE,
     ).order_by(FinancialTransaction.transaction_date.desc(), FinancialTransaction.id.desc()).limit(20).all()
     account_names = {a.id: a.name for a in accounts}
     card_names = {c.id: c.name for c in cards}

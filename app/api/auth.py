@@ -39,7 +39,7 @@ def set_session_cookie(response: Response, raw_token: str) -> None:
         max_age=settings.session_days * 24 * 60 * 60,
         httponly=True,
         secure=settings.cookie_secure,
-        samesite="lax",
+        samesite=settings.cookie_samesite,
     )
 
 
@@ -109,5 +109,10 @@ def change_password(
     if not verify_password(payload.current_password, context.user.password_hash):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La contraseña actual es inválida")
     context.user.password_hash = hash_password(payload.new_password)
+    db.query(AuthSession).filter(
+        AuthSession.user_id == context.user.id,
+        AuthSession.id != context.session.id,
+        AuthSession.revoked_at.is_(None),
+    ).update({AuthSession.revoked_at: context.session.created_at}, synchronize_session=False)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

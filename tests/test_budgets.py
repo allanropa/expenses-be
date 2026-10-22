@@ -251,3 +251,10 @@ def test_budget_scope_change_to_card_requires_a_card(client):
     assert accepted.status_code == 200, accepted.text
     summary = client.get(f"/api/budgets/{budget['id']}/summary?date_from=2026-01-01&date_to=2026-01-31").json()
     assert Decimal(summary["actual_spending"]) == Decimal("100000")
+
+
+def test_alerts_collection_route_is_not_captured_as_budget_id(client):
+    register(client)
+    response = client.get("/api/budgets/alerts")
+    assert response.status_code == 200
+    assert response.json() == []

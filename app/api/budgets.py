@@ -9,8 +9,33 @@ from app.db.session import get_db
 from app.models.budgets import Alert, Budget
 from app.domain.money import normalize_amount
 from app.services.budgets import calculate_summary, create_budget, maybe_alert
+from app.domain.enums import BudgetScope
+from app.models.cards import CreditCard
+from app.models.ledger import Account, Category
 
 router = APIRouter(prefix="/api/budgets", tags=["budgets"])
+
+
+def validate_budget_target(
+    db: Session,
+    user_id: int,
+    scope: str,
+    category_id: int | None,
+    account_id: int | None,
+    card_id: int | None,
+) -> None:
+    target = {
+        BudgetScope.CATEGORY: (Category, category_id, "Categoría"),
+        BudgetScope.ACCOUNT: (Account, account_id, "Cuenta"),
+        BudgetScope.CARD: (CreditCard, card_id, "Tarjeta"),
+    }.get(scope)
+    if target is None:
+        return
+    model, target_id, label = target
+    if target_id is None:
+        return
+    if db.query(model).filter(model.id == target_id, model.user_id == user_id).one_or_none() is None:
+        raise HTTPException(status_code=404, detail=f"{label} no encontrada")
 
 
 def owned_budget(db: Session, user_id: int, budget_id: int) -> Budget:
@@ -27,6 +52,7 @@ def list_budgets(context: AuthContext = Depends(get_auth_context), db: Session =
 
 @router.post("", response_model=BudgetResponse, status_code=status.HTTP_201_CREATED)
 def create_new_budget(payload: BudgetCreate, context: AuthContext = Depends(require_csrf), db: Session = Depends(get_db)):
+    validate_budget_target(db, context.user.id, payload.scope, payload.category_id, payload.account_id, payload.card_id)
     budget = create_budget(db, context.user.id, payload)
     db.commit()
     db.refresh(budget)
@@ -46,11 +72,6 @@ def budget_summary(
     maybe_alert(db, budget, summary)
     db.commit()
     return summary
-
-
-@router.get("/{budget_id}", response_model=BudgetResponse)
-def get_budget(budget_id: int, context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    return owned_budget(db, context.user.id, budget_id)
 
 
 @router.patch("/{budget_id}", response_model=BudgetResponse)
@@ -89,10 +110,11 @@ def update_budget(
         budget.end_date = payload.end_date
     if budget.end_date < budget.start_date:
         raise HTTPException(status_code=422, detail="El final no puede preceder al inicio")
-    if budget.scope == "account" and budget.account_id is None:
+    if budget.scope == BudgetScope.ACCOUNT and budget.account_id is None:
         raise HTTPException(status_code=422, detail="Un presupuesto de cuenta requiere una cuenta")
-    if budget.scope == "card" and budget.card_id is None:
+    if budget.scope == BudgetScope.CARD and budget.card_id is None:
         raise HTTPException(status_code=422, detail="Un presupuesto de tarjeta requiere una tarjeta")
+    validate_budget_target(db, context.user.id, budget.scope, budget.category_id, budget.account_id, budget.card_id)
     if payload.alert_threshold is not None:
         budget.alert_threshold = payload.alert_threshold
     db.commit()
@@ -111,6 +133,11 @@ def archive_budget(budget_id: int, context: AuthContext = Depends(require_csrf),
 @router.get("/alerts", response_model=list[AlertResponse])
 def list_alerts(context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
     return db.query(Alert).filter(Alert.user_id == context.user.id).order_by(Alert.created_at.desc()).all()
+
+
+@router.get("/{budget_id}", response_model=BudgetResponse)
+def get_budget(budget_id: int, context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+    return owned_budget(db, context.user.id, budget_id)
 
 
 @router.post("/alerts/{alert_id}/read", response_model=AlertResponse)

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.ledger_schemas import AccountCreate, BalanceAdjustmentCreate, TransactionCreate, TransactionUpdate, TransferCreate
 from app.domain.money import normalize_amount, normalize_currency
 from app.models.ledger import Account, AccountMovement, Category, FinancialOperation, FinancialTransaction, Transfer
+from app.domain.enums import CategoryKind, OperationStatus, TransactionType
 
 
 def not_found(message: str) -> HTTPException:
@@ -75,7 +76,7 @@ def create_transaction(
     category = get_owned_category(db, user_id, payload.category_id)
     if account.currency != normalize_currency(payload.currency):
         raise HTTPException(status_code=422, detail="La moneda no coincide con la cuenta")
-    if category.kind not in ("both", payload.transaction_type):
+    if category.kind not in (CategoryKind.BOTH, payload.transaction_type):
         raise HTTPException(status_code=422, detail="La categoría no corresponde al tipo de transacción")
     try:
         amount = normalize_amount(payload.amount, account.currency)
@@ -83,7 +84,7 @@ def create_transaction(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     operation = create_operation(db, user_id, payload.transaction_type, payload.transaction_date, idempotency_key)
-    signed_amount = amount if payload.transaction_type == "income" else -amount
+    signed_amount = amount if payload.transaction_type == TransactionType.INCOME else -amount
     db.add(AccountMovement(operation_id=operation.id, account_id=account.id, amount=signed_amount, currency=account.currency))
     transaction = FinancialTransaction(
         operation_id=operation.id,
@@ -111,9 +112,9 @@ def reverse_transaction(db: Session, user_id: int, transaction: FinancialTransac
     original_movement = db.query(AccountMovement).filter(AccountMovement.operation_id == operation.id).one()
     reversal = create_operation(db, user_id, "reversal", transaction.transaction_date)
     db.add(AccountMovement(operation_id=reversal.id, account_id=account.id, amount=-original_movement.amount, currency=account.currency))
-    operation.status = "voided"
+    operation.status = OperationStatus.VOIDED
     reversal.reverses_operation_id = operation.id
-    transaction.status = "voided"
+    transaction.status = OperationStatus.VOIDED
 
 
 def _reverse_credit_transaction(db: Session, user_id: int, transaction: FinancialTransaction) -> None:
@@ -132,9 +133,9 @@ def _reverse_credit_transaction(db: Session, user_id: int, transaction: Financia
             purchase.status = "voided"
             for installment in db.query(Installment).filter(Installment.purchase_id == purchase.id).all():
                 installment.status = "voided"
-    operation.status = "voided"
+    operation.status = OperationStatus.VOIDED
     reversal.reverses_operation_id = operation.id
-    transaction.status = "voided"
+    transaction.status = OperationStatus.VOIDED
 
 
 def create_transfer(db: Session, user_id: int, payload: TransferCreate, idempotency_key: str | None = None) -> Transfer:

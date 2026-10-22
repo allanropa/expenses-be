@@ -68,3 +68,24 @@ def test_login_and_password_change(client):
         json={"current_password": "correct horse", "new_password": "new password"},
     )
     assert changed.status_code == 204
+
+
+def test_password_change_revokes_other_sessions(client):
+    register(client)
+    csrf = client.get("/api/auth/session").json()["csrf_token"]
+    first_session = client.cookies.get("expenses_session")
+
+    login = client.post("/api/auth/login", json={"email": "ana@example.com", "password": "correct horse"})
+    assert login.status_code == 200
+    second_session = client.cookies.get("expenses_session")
+
+    client.cookies.set("expenses_session", first_session)
+
+    changed = client.post(
+        "/api/auth/password",
+        headers={"X-CSRF-Token": csrf},
+        json={"current_password": "correct horse", "new_password": "new password"},
+    )
+    assert changed.status_code == 204
+    client.cookies.set("expenses_session", second_session)
+    assert client.get("/api/auth/session").status_code == 401
