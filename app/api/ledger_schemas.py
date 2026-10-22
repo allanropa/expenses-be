@@ -59,7 +59,7 @@ class AccountMovementResponse(BaseModel):
     operation_id: int
     operation_type: str
     effective_date: date
-    amount: Decimal
+    amount: Decimal = Field(gt=0)
     currency: str
     description: str | None
 
@@ -82,7 +82,7 @@ class TransactionCreate(BaseModel):
 
 class TransactionUpdate(BaseModel):
     transaction_type: Literal["income", "expense"] | None = None
-    amount: Decimal | None = None
+    amount: Decimal | None = Field(default=None, gt=0)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     transaction_date: date | None = None
     account_id: int | None = None
@@ -117,10 +117,10 @@ class TransactionResponse(BaseModel):
 class TransferCreate(BaseModel):
     source_account_id: int
     destination_account_id: int
-    source_amount: Decimal
-    destination_amount: Decimal | None = None
+    source_amount: Decimal = Field(gt=0)
+    destination_amount: Decimal | None = Field(default=None, gt=0)
     transfer_date: date
-    exchange_rate: Decimal | None = None
+    exchange_rate: Decimal | None = Field(default=None, gt=0)
     description: str | None = Field(default=None, max_length=2000)
 
     @model_validator(mode="after")

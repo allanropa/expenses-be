@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from app.domain.money import normalize_currency
 
 
 class RegisterRequest(BaseModel):
@@ -48,7 +49,7 @@ class SettingsUpdateRequest(BaseModel):
     @field_validator("reporting_currency")
     @classmethod
     def uppercase_currency(cls, value: str | None) -> str | None:
-        return value.upper() if value else value
+        return normalize_currency(value) if value else value
 
 
 class HealthResponse(BaseModel):
