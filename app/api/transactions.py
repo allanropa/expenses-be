@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.models.ledger import FinancialOperation, FinancialTransaction
 from app.services.ledger import create_transaction, reverse_transaction
 from app.domain.enums import TransactionStatus
+from app.api.pagination import Pagination
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
@@ -52,6 +53,7 @@ def list_transactions(
     account_id: int | None = None,
     category_id: int | None = None,
     search: str | None = None,
+    pagination: Pagination = Depends(),
     context: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db),
 ):
@@ -71,7 +73,8 @@ def list_transactions(
         query = query.filter(FinancialTransaction.category_id == category_id)
     if search:
         query = query.filter(FinancialTransaction.description.ilike(f"%{search}%"))
-    return [response_for(item) for item in query.order_by(FinancialTransaction.transaction_date.desc(), FinancialTransaction.id.desc()).all()]
+    items = query.order_by(FinancialTransaction.transaction_date.desc(), FinancialTransaction.id.desc()).offset(pagination.offset).limit(pagination.limit).all()
+    return [response_for(item) for item in items]
 
 
 @router.post("", response_model=TransactionResponse, status_code=status.HTTP_201_CREATED)

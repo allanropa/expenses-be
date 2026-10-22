@@ -12,6 +12,7 @@ from app.services.budgets import calculate_summary, create_budget, maybe_alert
 from app.domain.enums import BudgetScope
 from app.models.cards import CreditCard
 from app.models.ledger import Account, Category
+from app.api.pagination import Pagination
 
 router = APIRouter(prefix="/api/budgets", tags=["budgets"])
 
@@ -131,8 +132,12 @@ def archive_budget(budget_id: int, context: AuthContext = Depends(require_csrf),
 
 
 @router.get("/alerts", response_model=list[AlertResponse])
-def list_alerts(context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    return db.query(Alert).filter(Alert.user_id == context.user.id).order_by(Alert.created_at.desc()).all()
+def list_alerts(
+    pagination: Pagination = Depends(),
+    context: AuthContext = Depends(get_auth_context),
+    db: Session = Depends(get_db),
+):
+    return db.query(Alert).filter(Alert.user_id == context.user.id).order_by(Alert.created_at.desc()).offset(pagination.offset).limit(pagination.limit).all()
 
 
 @router.get("/{budget_id}", response_model=BudgetResponse)

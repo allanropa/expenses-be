@@ -7,6 +7,7 @@ from app.api.ledger_schemas import AccountCreate, AccountMovementResponse, Accou
 from app.db.session import get_db
 from app.models.ledger import Account, AccountMovement, FinancialOperation, FinancialTransaction, Transfer
 from app.services.ledger import account_balance, adjust_account_balance, create_account, get_owned_account
+from app.api.pagination import Pagination
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
@@ -97,11 +98,12 @@ def get_account(
 @router.get("/{account_id}/movements", response_model=list[AccountMovementResponse])
 def account_movements(
     account_id: int,
+    pagination: Pagination = Depends(),
     context: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db),
 ):
     account = get_owned_account(db, context.user.id, account_id)
-    movements = db.query(AccountMovement).filter(AccountMovement.account_id == account.id).order_by(AccountMovement.id.desc()).all()
+    movements = db.query(AccountMovement).filter(AccountMovement.account_id == account.id).order_by(AccountMovement.id.desc()).offset(pagination.offset).limit(pagination.limit).all()
     result = []
     for item in movements:
         operation = db.query(FinancialOperation).filter(FinancialOperation.id == item.operation_id).one()

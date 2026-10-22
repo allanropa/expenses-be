@@ -8,6 +8,7 @@ from app.domain.money import normalize_amount
 from app.models.loans import Loan, LoanInstallment, LoanPayment
 from app.services.loans import close_loan, create_loan, create_payment, get_owned_loan, outstanding_principal
 from app.domain.enums import TransactionStatus
+from app.api.pagination import Pagination
 
 router = APIRouter(prefix="/api/loans", tags=["loans"])
 
@@ -32,8 +33,13 @@ def loan_response(db: Session, loan: Loan) -> LoanResponse:
 
 
 @router.get("", response_model=list[LoanResponse])
-def list_loans(context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    return [loan_response(db, loan) for loan in db.query(Loan).filter(Loan.user_id == context.user.id, Loan.status == TransactionStatus.ACTIVE).order_by(Loan.start_date.desc()).all()]
+def list_loans(
+    pagination: Pagination = Depends(),
+    context: AuthContext = Depends(get_auth_context),
+    db: Session = Depends(get_db),
+):
+    loans = db.query(Loan).filter(Loan.user_id == context.user.id, Loan.status == TransactionStatus.ACTIVE).order_by(Loan.start_date.desc()).offset(pagination.offset).limit(pagination.limit).all()
+    return [loan_response(db, loan) for loan in loans]
 
 
 @router.post("", response_model=LoanResponse, status_code=status.HTTP_201_CREATED)

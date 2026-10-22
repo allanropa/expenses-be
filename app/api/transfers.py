@@ -6,6 +6,7 @@ from app.api.ledger_schemas import TransferCreate, TransferResponse
 from app.db.session import get_db
 from app.models.ledger import FinancialOperation, Transfer
 from app.services.ledger import create_transfer
+from app.api.pagination import Pagination
 
 router = APIRouter(prefix="/api/transfers", tags=["transfers"])
 
@@ -28,8 +29,13 @@ def response_for(transfer: Transfer) -> TransferResponse:
 
 
 @router.get("", response_model=list[TransferResponse])
-def list_transfers(context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    return [response_for(item) for item in db.query(Transfer).filter(Transfer.user_id == context.user.id).order_by(Transfer.transfer_date.desc()).all()]
+def list_transfers(
+    pagination: Pagination = Depends(),
+    context: AuthContext = Depends(get_auth_context),
+    db: Session = Depends(get_db),
+):
+    items = db.query(Transfer).filter(Transfer.user_id == context.user.id).order_by(Transfer.transfer_date.desc()).offset(pagination.offset).limit(pagination.limit).all()
+    return [response_for(item) for item in items]
 
 
 @router.post("", response_model=TransferResponse, status_code=status.HTTP_201_CREATED)

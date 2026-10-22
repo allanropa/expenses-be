@@ -36,6 +36,7 @@ from app.models.cards import (
 from app.models.ledger import FinancialOperation
 from app.services.cards import adjust_card_debt, create_card, create_charge, create_payment, create_purchase, get_owned_card, supported_currency
 from app.domain.enums import TransactionStatus
+from app.api.pagination import Pagination
 
 router = APIRouter(prefix="/api/cards", tags=["credit cards"])
 
@@ -218,9 +219,9 @@ def create_new_purchase(
 
 
 @router.get("/{card_id}/purchases", response_model=list[PurchaseResponse])
-def list_purchases(card_id: int, context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+def list_purchases(card_id: int, pagination: Pagination = Depends(), context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
     card = get_owned_card(db, context.user.id, card_id)
-    purchases = db.query(CreditPurchase).filter(CreditPurchase.card_id == card.id, CreditPurchase.status == TransactionStatus.ACTIVE).order_by(CreditPurchase.purchase_date.desc()).all()
+    purchases = db.query(CreditPurchase).filter(CreditPurchase.card_id == card.id, CreditPurchase.status == TransactionStatus.ACTIVE).order_by(CreditPurchase.purchase_date.desc()).offset(pagination.offset).limit(pagination.limit).all()
     return [purchase_response(db, purchase) for purchase in purchases]
 
 
@@ -270,9 +271,10 @@ def create_new_payment(
 
 
 @router.get("/{card_id}/payments", response_model=list[PaymentResponse])
-def list_payments(card_id: int, context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+def list_payments(card_id: int, pagination: Pagination = Depends(), context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
     card = get_owned_card(db, context.user.id, card_id)
-    return [payment_response(item) for item in db.query(CardPayment).filter(CardPayment.card_id == card.id).order_by(CardPayment.payment_date.desc()).all()]
+    items = db.query(CardPayment).filter(CardPayment.card_id == card.id).order_by(CardPayment.payment_date.desc()).offset(pagination.offset).limit(pagination.limit).all()
+    return [payment_response(item) for item in items]
 
 
 @router.get("/{card_id}/statement")

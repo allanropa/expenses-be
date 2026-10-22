@@ -83,6 +83,8 @@ def test_defaults_accounts_transactions_and_reversible_delete(client):
     assert deleted.status_code == 204
     assert client.get("/api/accounts").json()[0]["current_balance"] == "150000"
     assert len(client.get("/api/transactions").json()) == 1
+    assert len(client.get("/api/transactions?limit=1&offset=0").json()) == 1
+    assert client.get("/api/transactions?limit=0").status_code == 422
 
 
 def test_transfer_is_atomic_and_multicurrency_is_explicit(client):
