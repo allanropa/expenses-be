@@ -231,7 +231,11 @@ def create_new_charge(
     context: AuthContext = Depends(require_csrf),
     db: Session = Depends(get_db),
 ):
-    charge = create_charge(db, context.user.id, card_id, payload)
+    try:
+        charge = create_charge(db, context.user.id, card_id, payload)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     db.commit()
     db.refresh(charge)
     return {"id": charge.id, "amount": charge.amount, "currency": charge.currency, "charge_type": charge.charge_type}
@@ -255,7 +259,11 @@ def create_new_payment(
             if existing:
                 response.status_code = status.HTTP_200_OK
                 return payment_response(existing)
-    payment = create_payment(db, context.user.id, payload, idempotency_key)
+    try:
+        payment = create_payment(db, context.user.id, payload, idempotency_key)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     db.commit()
     db.refresh(payment)
     return payment_response(payment)

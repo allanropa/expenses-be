@@ -50,3 +50,14 @@ class SpendingType(StrEnum):
 class OperationStatus(StrEnum):
     ACTIVE = "active"
     VOIDED = "voided"
+
+
+class LoanStatus(StrEnum):
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class InstallmentStatus(StrEnum):
+    PENDING = "pending"
+    PARTIAL = "partial"
+    PAID = "paid"

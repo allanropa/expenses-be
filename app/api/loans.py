@@ -6,7 +6,7 @@ from app.api.loan_schemas import LoanCreate, LoanInstallmentResponse, LoanPaymen
 from app.db.session import get_db
 from app.domain.money import normalize_amount
 from app.models.loans import Loan, LoanInstallment, LoanPayment
-from app.services.loans import create_loan, create_payment, get_owned_loan, outstanding_principal
+from app.services.loans import close_loan, create_loan, create_payment, get_owned_loan, outstanding_principal
 from app.domain.enums import TransactionStatus
 
 router = APIRouter(prefix="/api/loans", tags=["loans"])
@@ -65,18 +65,22 @@ def pay_loan(
 @router.patch("/{loan_id}", response_model=LoanResponse)
 def update_loan(loan_id: int, payload: LoanUpdate, context: AuthContext = Depends(require_csrf), db: Session = Depends(get_db)):
     loan = get_owned_loan(db, context.user.id, loan_id)
+    if any(
+        value is not None
+        for value in (
+            payload.annual_effective_rate,
+            payload.term_months,
+            payload.start_date,
+            payload.first_payment_date,
+            payload.record_as_income,
+        )
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="La tasa, el plazo, las fechas y el registro como ingreso son inmutables; cierre el préstamo para detenerlo",
+        )
     if payload.name is not None:
         loan.name = payload.name.strip()
-    if payload.annual_effective_rate is not None:
-        loan.annual_effective_rate = payload.annual_effective_rate
-    if payload.term_months is not None:
-        loan.term_months = payload.term_months
-    if payload.start_date is not None:
-        loan.start_date = payload.start_date
-    if payload.first_payment_date is not None:
-        loan.first_payment_date = payload.first_payment_date
-    if payload.record_as_income is not None:
-        loan.record_as_income = payload.record_as_income
     db.commit()
     db.refresh(loan)
     return loan_response(db, loan)
@@ -84,7 +88,15 @@ def update_loan(loan_id: int, payload: LoanUpdate, context: AuthContext = Depend
 
 @router.post("/{loan_id}/archive", response_model=LoanResponse)
 def archive_loan(loan_id: int, context: AuthContext = Depends(require_csrf), db: Session = Depends(get_db)):
-    loan = get_owned_loan(db, context.user.id, loan_id)
-    loan.status = "archived"
+    loan = close_loan(db, context.user.id, loan_id)
     db.commit()
+    db.refresh(loan)
+    return loan_response(db, loan)
+
+
+@router.post("/{loan_id}/close", response_model=LoanResponse)
+def close_existing_loan(loan_id: int, context: AuthContext = Depends(require_csrf), db: Session = Depends(get_db)):
+    loan = close_loan(db, context.user.id, loan_id)
+    db.commit()
+    db.refresh(loan)
     return loan_response(db, loan)

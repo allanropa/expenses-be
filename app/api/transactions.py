@@ -113,6 +113,11 @@ def update_transaction(
     ).one_or_none()
     if original is None:
         raise HTTPException(status_code=404, detail="Transacción no encontrada")
+    if original.card_id is not None or original.credit_purchase_id is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="Las transacciones generadas por tarjetas no se pueden editar; elimínelas o modifique la operación de origen",
+        )
     values = {
         "transaction_type": payload.transaction_type or original.transaction_type,
         "amount": payload.amount if payload.amount is not None else original.amount,

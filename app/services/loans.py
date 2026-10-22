@@ -10,7 +10,7 @@ from app.domain.money import normalize_amount, normalize_currency
 from app.models.ledger import Account, AccountMovement, Category, FinancialTransaction
 from app.models.loans import Loan, LoanInstallment, LoanMovement, LoanPayment
 from app.services.ledger import create_operation, get_owned_account, get_owned_category, not_found
-from app.domain.enums import TransactionStatus
+from app.domain.enums import InstallmentStatus, LoanStatus, TransactionStatus
 
 
 def get_owned_loan(db: Session, user_id: int, loan_id: int) -> Loan:
@@ -23,6 +23,16 @@ def get_owned_loan(db: Session, user_id: int, loan_id: int) -> Loan:
 def outstanding_principal(db: Session, loan_id: int) -> Decimal:
     value = db.query(func.coalesce(func.sum(LoanMovement.amount), 0)).filter(LoanMovement.loan_id == loan_id).scalar()
     return Decimal(value or 0)
+
+
+def close_loan(db: Session, user_id: int, loan_id: int) -> Loan:
+    loan = get_owned_loan(db, user_id, loan_id)
+    db.query(LoanInstallment).filter(
+        LoanInstallment.loan_id == loan.id,
+        LoanInstallment.status != InstallmentStatus.PAID,
+    ).delete(synchronize_session=False)
+    loan.status = LoanStatus.ARCHIVED
+    return loan
 
 
 def default_interest_category(db: Session, user_id: int) -> Category:
@@ -173,9 +183,9 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
             description=f"Abono a capital: {loan.name}",
         ))
     if scheduled_amount >= installment.total_amount and extra == 0:
-        installment.status = "paid"
+        installment.status = InstallmentStatus.PAID
     else:
-        installment.status = "partial"
+        installment.status = InstallmentStatus.PARTIAL
     db.flush()
     if payload.extra_charges:
         for charge in payload.extra_charges:

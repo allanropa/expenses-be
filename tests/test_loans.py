@@ -59,3 +59,32 @@ def test_received_loan_can_skip_income_and_accept_extra_principal_payment(client
     assert len(payment_txs) == 1
     assert Decimal(payment_txs[0]["amount"]) > 0
     assert "capital" in payment_txs[0]["description"]
+
+
+def test_schedule_fields_are_immutable_and_closing_removes_unpaid_installments(client):
+    csrf = register(client)
+    loan = client.post(
+        "/api/loans",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "name": "Préstamo fijo",
+            "principal_amount": "1000000",
+            "currency": "COP",
+            "annual_effective_rate": "0.12",
+            "term_months": 12,
+            "start_date": "2026-01-01",
+            "first_payment_date": "2026-02-01",
+        },
+    )
+    assert loan.status_code == 201, loan.text
+    loan_id = loan.json()["id"]
+    update = client.patch(
+        f"/api/loans/{loan_id}",
+        headers={"X-CSRF-Token": csrf},
+        json={"term_months": 24},
+    )
+    assert update.status_code == 422
+    closed = client.post(f"/api/loans/{loan_id}/close", headers={"X-CSRF-Token": csrf})
+    assert closed.status_code == 200, closed.text
+    assert closed.json()["status"] == "archived"
+    assert closed.json()["installments"] == []

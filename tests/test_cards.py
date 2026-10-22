@@ -219,3 +219,34 @@ def test_credit_purchase_transaction_can_be_deleted(client):
     assert client.get(f"/api/cards/{card['id']}").json()["currencies"][0]["outstanding_debt"] == "0"
     remaining = [item for item in client.get("/api/transactions").json() if item["credit_purchase_id"] == purchase.json()["id"]]
     assert remaining == []
+
+
+def test_credit_purchase_transaction_cannot_be_edited(client):
+    csrf = register(client)
+    food = next(item for item in client.get("/api/categories").json() if item["name"] == "Alimentación")
+    card = client.post(
+        "/api/cards",
+        headers={"X-CSRF-Token": csrf},
+        json={"name": "Visa", "statement_closing_day": 15, "currencies": [{"currency": "COP"}]},
+    ).json()
+    purchase = client.post(
+        f"/api/cards/{card['id']}/purchases",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "card_id": card["id"],
+            "category_id": food["id"],
+            "amount": "100000",
+            "currency": "COP",
+            "purchase_date": "2026-01-10",
+            "installments_count": 1,
+            "description": "Compra a crédito",
+        },
+    )
+    assert purchase.status_code == 201
+    transaction = next(item for item in client.get("/api/transactions").json() if item["credit_purchase_id"] == purchase.json()["id"])
+    response = client.patch(
+        f"/api/transactions/{transaction['id']}",
+        headers={"X-CSRF-Token": csrf},
+        json={"description": "Modificada"},
+    )
+    assert response.status_code == 422
