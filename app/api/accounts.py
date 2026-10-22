@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func
 from sqlalchemy.orm import Session
+from decimal import Decimal
 
 from app.api.deps import AuthContext, get_auth_context, require_csrf
 from app.api.ledger_schemas import AccountCreate, AccountMovementResponse, AccountResponse, AccountUpdate, BalanceAdjustmentCreate
@@ -12,10 +14,10 @@ from app.api.pagination import Pagination
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
 
-def to_response(db: Session, account: Account) -> AccountResponse:
+def to_response(db: Session, account: Account, balance: Decimal | None = None) -> AccountResponse:
     from app.domain.money import normalize_amount
 
-    balance = normalize_amount(account_balance(db, account), account.currency, positive=False)
+    balance = normalize_amount(account_balance(db, account), account.currency, positive=False) if balance is None else normalize_amount(balance, account.currency, positive=False)
     opening_balance = normalize_amount(account.opening_balance, account.currency, positive=False)
     return AccountResponse(
         id=account.id,
@@ -33,7 +35,13 @@ def to_response(db: Session, account: Account) -> AccountResponse:
 @router.get("", response_model=list[AccountResponse])
 def list_accounts(context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
     accounts = db.query(Account).filter(Account.user_id == context.user.id, Account.is_archived.is_(False)).order_by(Account.name).all()
-    return [to_response(db, account) for account in accounts]
+    balances = dict(
+        db.query(AccountMovement.account_id, func.coalesce(func.sum(AccountMovement.amount), 0))
+        .filter(AccountMovement.account_id.in_([account.id for account in accounts]))
+        .group_by(AccountMovement.account_id)
+        .all()
+    ) if accounts else {}
+    return [to_response(db, account, Decimal(account.opening_balance) + Decimal(balances.get(account.id, 0))) for account in accounts]
 
 
 @router.post("", response_model=AccountResponse, status_code=status.HTTP_201_CREATED)
