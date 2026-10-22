@@ -31,6 +31,9 @@ pytest
 
 ## Docker
 
+Docker Compose requires `POSTGRES_PASSWORD` in `.env`; use a long random value.
+The database is intentionally not published on the host network.
+
 La imagen se construye desde `Dockerfile`. En el despliegue completo
 (orquestado desde la raíz del repositorio) el servicio arranca con:
 

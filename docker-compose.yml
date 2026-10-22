@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: expenses
-      POSTGRES_PASSWORD: change-me
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: expenses
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -12,8 +12,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    ports:
-      - "5432:5432"
 
   app:
     build: .
@@ -21,7 +19,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql+psycopg://expenses:change-me@db:5432/expenses
+      DATABASE_URL: postgresql+psycopg://expenses:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/expenses
       SESSION_DAYS: "7"
       COOKIE_SECURE: "false"
       COOKIE_SAMESITE: lax

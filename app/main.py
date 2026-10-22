@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
-import os
 
 from app.api import accounts, auth, budgets, cards, categories, dashboard, loans, settings, transactions, transfers
 from app.api.schemas import HealthResponse
@@ -11,26 +10,13 @@ from app.db.session import engine
 app = FastAPI(title="Personal Expense Tracker API", version="0.1.0")
 
 # Configure CORS to allow frontend and localhost
-cors_origins = [
-    app_settings.frontend_origin,
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:3000",
-    "https://expenses.lan.rpamplona.com",
-    "http://expenses.lan.rpamplona.com",
-    "https://expenses.rpamplona.com",
-    "http://expenses.rpamplona.com",
-]
-
-# Add Docker network origins if in Docker environment
-if os.getenv("DOCKER_ENV"):
+cors_origins = [app_settings.frontend_origin]
+if app_settings.app_env == "development":
     cors_origins.extend([
-        "http://172.17.0.0:5173",
-        "http://172.18.0.0:5173",
-        "http://172.19.0.0:5173",
-        "http://172.20.0.0:5173",
-        "http://expenses-frontend:5173",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
     ])
 
 app.add_middleware(
@@ -38,7 +24,7 @@ app.add_middleware(
     allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["Accept", "Content-Type", "Idempotency-Key", "X-CSRF-Token"],
 )
 app.include_router(auth.router)
 app.include_router(settings.router)
