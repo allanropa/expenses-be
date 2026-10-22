@@ -11,6 +11,14 @@ class CategoryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     kind: Literal["income", "expense", "both"] = "both"
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise ValueError("El nombre de la categoría no puede estar vacío")
+        return name
+
 
 class CategoryResponse(CategoryCreate):
     id: int
