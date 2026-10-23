@@ -20,7 +20,7 @@ from app.models.cards import (
     InterestRateConfiguration,
 )
 from app.models.ledger import AccountMovement, Category, FinancialTransaction
-from app.services.ledger import create_operation, get_owned_account, get_owned_category, not_found
+from app.services.ledger import account_balance, create_operation, get_owned_account, get_owned_category, not_found
 
 
 def get_owned_card(db: Session, user_id: int, card_id: int) -> CreditCard:
@@ -204,6 +204,16 @@ def create_payment(db: Session, user_id: int, payload: PaymentCreate, idempotenc
             exchange_rate = payload.exchange_rate
         if payload.fee_amount is not None:
             fee_amount = normalize_amount(payload.fee_amount, source_currency)
+        extra_source_total = Decimal("0")
+        for charge in payload.extra_charges or []:
+            charge_amount = normalize_amount(charge.amount, obligation_currency)
+            extra_source_total += (
+                charge_amount
+                if source_currency == obligation_currency
+                else normalize_amount(charge_amount * exchange_rate, source_currency)
+            )
+        if source_amount + (fee_amount or 0) + extra_source_total > account_balance(db, source_account):
+            raise HTTPException(status_code=422, detail="El pago supera el saldo disponible de la cuenta")
     elif payload.source_amount is not None or payload.exchange_rate is not None or payload.fee_amount is not None:
         raise HTTPException(status_code=422, detail="Los datos de origen requieren una cuenta")
 

@@ -9,7 +9,7 @@ from app.domain.loans import amortization_schedule
 from app.domain.money import normalize_amount, normalize_currency
 from app.models.ledger import AccountMovement, Category, FinancialTransaction
 from app.models.loans import Loan, LoanInstallment, LoanMovement, LoanPayment
-from app.services.ledger import create_operation, get_owned_account, get_owned_category, not_found
+from app.services.ledger import account_balance, create_operation, get_owned_account, get_owned_category, not_found
 from app.domain.enums import InstallmentStatus, LoanStatus, TransactionStatus
 
 
@@ -134,9 +134,15 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
         interest_paid = min(Decimal(installment.interest_amount), scheduled_amount)
     if interest_paid > scheduled_amount:
         raise HTTPException(status_code=422, detail="El interés pagado no puede superar el monto programado")
-    principal_paid = min(balance, scheduled_amount - interest_paid)
+    principal_paid = scheduled_amount - interest_paid
     total = scheduled_amount + extra
-    if principal_paid + extra > balance:
+    extra_charge_total = sum(
+        (normalize_amount(charge.amount, loan.currency) for charge in payload.extra_charges or []),
+        Decimal("0"),
+    )
+    if total + extra_charge_total > account_balance(db, source):
+        raise HTTPException(status_code=422, detail="El pago supera el saldo disponible de la cuenta")
+    if principal_paid > balance:
         raise HTTPException(status_code=422, detail="El abono supera el capital pendiente")
     operation = create_operation(db, user_id, "loan_payment", payload.payment_date)
     db.add(LoanMovement(operation_id=operation.id, loan_id=loan.id, amount=-principal_paid - extra, currency=loan.currency, movement_type="principal_payment"))
@@ -189,6 +195,13 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
     else:
         installment.status = InstallmentStatus.PARTIAL
     db.flush()
+    if principal_total >= balance:
+        loan.status = LoanStatus.ARCHIVED
+        db.query(LoanInstallment).filter(
+            LoanInstallment.loan_id == loan.id,
+            LoanInstallment.status != InstallmentStatus.PAID,
+        ).delete(synchronize_session=False)
+        db.flush()
     if payload.extra_charges:
         for charge in payload.extra_charges:
             category = get_owned_category(db, user_id, charge.category_id)
