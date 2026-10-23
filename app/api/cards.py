@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -146,8 +146,8 @@ def payment_response(payment: CardPayment) -> PaymentResponse:
 
 
 @router.get("", response_model=list[CardResponse])
-def list_cards(context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    cards = db.query(CreditCard).filter(CreditCard.user_id == context.user.id, CreditCard.is_archived.is_(False)).order_by(CreditCard.name).all()
+def list_cards(archived: bool = Query(False), context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+    cards = db.query(CreditCard).filter(CreditCard.user_id == context.user.id, CreditCard.is_archived.is_(archived)).order_by(CreditCard.name).all()
     return card_responses(db, cards)
 
 
@@ -176,6 +176,14 @@ def archive_card(
 ):
     card = get_owned_card(db, context.user.id, card_id)
     card.is_archived = True
+    db.commit()
+    return card_response(db, card)
+
+
+@router.post("/{card_id}/unarchive", response_model=CardResponse)
+def unarchive_card(card_id: int, context: AuthContext = Depends(require_csrf), db: Session = Depends(get_db)):
+    card = get_owned_card(db, context.user.id, card_id)
+    card.is_archived = False
     db.commit()
     return card_response(db, card)
 

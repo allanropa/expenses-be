@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -33,8 +33,8 @@ def to_response(db: Session, account: Account, balance: Decimal | None = None) -
 
 
 @router.get("", response_model=list[AccountResponse])
-def list_accounts(context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    accounts = db.query(Account).filter(Account.user_id == context.user.id, Account.is_archived.is_(False)).order_by(Account.name).all()
+def list_accounts(archived: bool = Query(False), context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+    accounts = db.query(Account).filter(Account.user_id == context.user.id, Account.is_archived.is_(archived)).order_by(Account.name).all()
     balances: dict[int, Decimal] = {
         int(row[0]): Decimal(row[1])
         for row in db.query(AccountMovement.account_id, func.coalesce(func.sum(AccountMovement.amount), 0))
@@ -90,6 +90,15 @@ def archive_account(
 ):
     account = get_owned_account(db, context.user.id, account_id)
     account.is_archived = True
+    db.commit()
+    db.refresh(account)
+    return to_response(db, account)
+
+
+@router.post("/{account_id}/unarchive", response_model=AccountResponse)
+def unarchive_account(account_id: int, context: AuthContext = Depends(require_csrf), db: Session = Depends(get_db)):
+    account = get_owned_account(db, context.user.id, account_id)
+    account.is_archived = False
     db.commit()
     db.refresh(account)
     return to_response(db, account)

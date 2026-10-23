@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuthContext, get_auth_context, require_csrf
@@ -7,7 +7,7 @@ from app.db.session import get_db
 from app.domain.money import normalize_amount
 from app.models.loans import Loan, LoanInstallment
 from app.services.loans import close_loan, create_loan, create_payment, get_owned_loan, outstanding_principal
-from app.domain.enums import TransactionStatus
+from app.domain.enums import LoanStatus, TransactionStatus
 from app.api.pagination import Pagination
 
 router = APIRouter(prefix="/api/loans", tags=["loans"])
@@ -34,11 +34,13 @@ def loan_response(db: Session, loan: Loan) -> LoanResponse:
 
 @router.get("", response_model=list[LoanResponse])
 def list_loans(
+    archived: bool = Query(False),
     pagination: Pagination = Depends(),
     context: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db),
 ):
-    loans = db.query(Loan).filter(Loan.user_id == context.user.id, Loan.status == TransactionStatus.ACTIVE).order_by(Loan.start_date.desc()).offset(pagination.offset).limit(pagination.limit).all()
+    target_status = LoanStatus.ARCHIVED if archived else TransactionStatus.ACTIVE
+    loans = db.query(Loan).filter(Loan.user_id == context.user.id, Loan.status == target_status).order_by(Loan.start_date.desc()).offset(pagination.offset).limit(pagination.limit).all()
     return [loan_response(db, loan) for loan in loans]
 
 

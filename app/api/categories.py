@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -11,8 +11,8 @@ router = APIRouter(prefix="/api/categories", tags=["categories"])
 
 
 @router.get("", response_model=list[CategoryResponse])
-def list_categories(context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    return db.query(Category).filter(Category.user_id == context.user.id, Category.is_archived.is_(False)).order_by(Category.name).all()
+def list_categories(archived: bool = Query(False), context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+    return db.query(Category).filter(Category.user_id == context.user.id, Category.is_archived.is_(archived)).order_by(Category.name).all()
 
 
 @router.post("", response_model=CategoryResponse, status_code=status.HTTP_201_CREATED)
@@ -43,3 +43,14 @@ def archive_category(
         raise HTTPException(status_code=404, detail="Categoría no encontrada")
     category.is_archived = True
     db.commit()
+
+
+@router.post("/{category_id}/unarchive", response_model=CategoryResponse)
+def unarchive_category(category_id: int, context: AuthContext = Depends(require_csrf), db: Session = Depends(get_db)):
+    category = db.query(Category).filter(Category.id == category_id, Category.user_id == context.user.id).one_or_none()
+    if category is None:
+        raise HTTPException(status_code=404, detail="Categoría no encontrada")
+    category.is_archived = False
+    db.commit()
+    db.refresh(category)
+    return category

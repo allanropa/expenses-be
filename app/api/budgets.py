@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.budget_schemas import AlertResponse, BudgetCreate, BudgetResponse, BudgetSummary, BudgetUpdate
@@ -47,8 +47,8 @@ def owned_budget(db: Session, user_id: int, budget_id: int) -> Budget:
 
 
 @router.get("", response_model=list[BudgetResponse])
-def list_budgets(context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    return db.query(Budget).filter(Budget.user_id == context.user.id, Budget.is_archived.is_(False)).order_by(Budget.start_date.desc()).all()
+def list_budgets(archived: bool = Query(False), context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+    return db.query(Budget).filter(Budget.user_id == context.user.id, Budget.is_archived.is_(archived)).order_by(Budget.start_date.desc()).all()
 
 
 @router.post("", response_model=BudgetResponse, status_code=status.HTTP_201_CREATED)
@@ -128,6 +128,17 @@ def archive_budget(budget_id: int, context: AuthContext = Depends(require_csrf),
     budget = owned_budget(db, context.user.id, budget_id)
     budget.is_archived = True
     db.commit()
+    return budget
+
+
+@router.post("/{budget_id}/unarchive", response_model=BudgetResponse)
+def unarchive_budget(budget_id: int, context: AuthContext = Depends(require_csrf), db: Session = Depends(get_db)):
+    budget = db.query(Budget).filter(Budget.id == budget_id, Budget.user_id == context.user.id).one_or_none()
+    if budget is None:
+        raise HTTPException(status_code=404, detail="Presupuesto no encontrado")
+    budget.is_archived = False
+    db.commit()
+    db.refresh(budget)
     return budget
 
 
