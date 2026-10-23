@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from decimal import Decimal
@@ -51,12 +50,8 @@ def create_new_account(
     context: AuthContext = Depends(require_csrf),
     db: Session = Depends(get_db),
 ):
-    try:
-        account = create_account(db, context.user.id, payload)
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="Ya existe una cuenta con ese nombre") from None
+    account = create_account(db, context.user.id, payload)
+    db.commit()
     db.refresh(account)
     return to_response(db, account)
 
@@ -73,11 +68,7 @@ def update_account(
         account.name = payload.name.strip()
     if payload.description is not None:
         account.description = payload.description
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="Ya existe una cuenta con ese nombre") from None
+    db.commit()
     db.refresh(account)
     return to_response(db, account)
 

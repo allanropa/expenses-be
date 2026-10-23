@@ -10,7 +10,6 @@ from app.db.base import Base
 
 class CreditCard(Base):
     __tablename__ = "credit_cards"
-    __table_args__ = (UniqueConstraint("user_id", "name"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)

@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuthContext, get_auth_context, require_csrf
@@ -23,11 +22,7 @@ def create_category(
 ):
     category = Category(user_id=context.user.id, name=payload.name.strip(), kind=payload.kind)
     db.add(category)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="Ya existe una categoría con ese nombre") from None
+    db.commit()
     db.refresh(category)
     return category
 
