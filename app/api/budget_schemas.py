@@ -25,6 +25,7 @@ class BudgetCreate(BaseModel):
     card_ids: list[int] | None = None
     eligible_weekdays: list[int] | None = None
     alert_threshold: Decimal = Field(default=Decimal("0.8"), ge=0, le=1)
+    show_in_summary: bool = True
 
     @model_validator(mode="after")
     def validate_budget(self):
@@ -62,6 +63,7 @@ class BudgetResponse(BaseModel):
     eligible_weekdays: list[int] | None
     alert_threshold: Decimal
     is_archived: bool
+    show_in_summary: bool
 
 
 class BudgetUpdate(BaseModel):
@@ -81,6 +83,7 @@ class BudgetUpdate(BaseModel):
     card_ids: list[int] | None = None
     eligible_weekdays: list[int] | None = None
     alert_threshold: Decimal | None = Field(default=None, ge=0, le=1)
+    show_in_summary: bool | None = None
 
 
 class BudgetSummary(BaseModel):

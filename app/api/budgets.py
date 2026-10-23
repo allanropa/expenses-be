@@ -149,6 +149,8 @@ def update_budget(
     validate_budget_targets(db, context.user.id, CreditCard, budget.card_ids, "Tarjeta")
     if payload.alert_threshold is not None:
         budget.alert_threshold = payload.alert_threshold
+    if payload.show_in_summary is not None:
+        budget.show_in_summary = payload.show_in_summary
     db.commit()
     db.refresh(budget)
     return budget

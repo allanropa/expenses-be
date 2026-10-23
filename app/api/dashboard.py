@@ -68,7 +68,11 @@ def dashboard(
         if item.card_id == card.id
     ]
     budgets = []
-    budget_items = db.query(Budget).filter(Budget.user_id == context.user.id, Budget.is_archived.is_(False)).all()
+    budget_items = db.query(Budget).filter(
+        Budget.user_id == context.user.id,
+        Budget.is_archived.is_(False),
+        Budget.show_in_summary.is_(True),
+    ).all()
     relevant_budgets = [budget for budget in budget_items if budget.end_date >= period_start and budget.start_date <= period_end]
     ranges = [summary_period(budget, period_start, period_end) for budget in relevant_budgets]
     if ranges:

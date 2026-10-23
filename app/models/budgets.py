@@ -31,6 +31,7 @@ class Budget(Base):
     eligible_weekdays: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
     alert_threshold: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False, default=Decimal("0.8"))
     is_archived: Mapped[bool] = mapped_column(nullable=False, default=False)
+    show_in_summary: Mapped[bool] = mapped_column(nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
