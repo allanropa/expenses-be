@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from datetime import date
+from typing import Literal
 from decimal import Decimal
 
 from pydantic import BaseModel, Field, field_validator
@@ -44,6 +47,8 @@ class LoanPaymentCreate(BaseModel):
     scheduled_amount: Decimal | None = Field(default=None, gt=0)
     interest_paid: Decimal | None = Field(default=None, ge=0)
     extra_principal: Decimal = Field(default=Decimal("0"), ge=0)
+    recalculate_installments: bool = False
+    is_abono: bool = False
     notes: str | None = Field(default=None, max_length=2000)
     extra_charges: list[LoanExtraCharge] | None = None
 
@@ -72,6 +77,18 @@ class LoanResponse(BaseModel):
     record_as_income: bool
     status: str
     installments: list[LoanInstallmentResponse] = []
+
+
+class LoanPaymentViewResponse(BaseModel):
+    id: int
+    status: Literal["paid", "pending"]
+    kind: Literal["payment", "abono"]
+    date: date
+    amount: Decimal
+    principal_amount: Decimal
+    interest_amount: Decimal
+    extra_principal: Decimal
+    notes: str | None = None
 
 
 class LoanPaymentResponse(BaseModel):

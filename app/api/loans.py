@@ -2,11 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuthContext, get_auth_context, require_csrf
-from app.api.loan_schemas import LoanCreate, LoanInstallmentResponse, LoanPaymentCreate, LoanPaymentResponse, LoanResponse, LoanUpdate
+from app.api.loan_schemas import LoanCreate, LoanInstallmentResponse, LoanPaymentCreate, LoanPaymentResponse, LoanPaymentViewResponse, LoanResponse, LoanUpdate
 from app.db.session import get_db
 from app.domain.money import normalize_amount
-from app.models.loans import Loan, LoanInstallment
-from app.services.loans import close_loan, create_loan, create_payment, get_owned_loan, outstanding_principal
+from app.models.loans import Loan, LoanInstallment, LoanPayment
+from app.services.loans import close_loan, create_loan, create_payment, get_owned_loan, get_owned_loan_for_read, outstanding_principal
 from app.domain.enums import LoanStatus, TransactionStatus
 from app.api.pagination import Pagination
 
@@ -54,7 +54,7 @@ def create_new_loan(payload: LoanCreate, context: AuthContext = Depends(require_
 
 @router.get("/{loan_id}", response_model=LoanResponse)
 def get_loan(loan_id: int, context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    return loan_response(db, get_owned_loan(db, context.user.id, loan_id))
+    return loan_response(db, get_owned_loan_for_read(db, context.user.id, loan_id))
 
 
 @router.post("/{loan_id}/payments", response_model=LoanPaymentResponse, status_code=status.HTTP_201_CREATED)
@@ -68,6 +68,62 @@ def pay_loan(
     db.commit()
     db.refresh(payment)
     return LoanPaymentResponse.model_validate(payment, from_attributes=True)
+
+
+@router.get("/{loan_id}/payments", response_model=list[LoanPaymentViewResponse])
+def list_loan_payments(
+    loan_id: int,
+    payment_status: str = Query("paid", alias="status", pattern="^(paid|pending)$"),
+    pagination: Pagination = Depends(),
+    context: AuthContext = Depends(get_auth_context),
+    db: Session = Depends(get_db),
+):
+    loan = get_owned_loan_for_read(db, context.user.id, loan_id)
+    if payment_status == "pending":
+        installments = (
+            db.query(LoanInstallment)
+            .filter(LoanInstallment.loan_id == loan.id, LoanInstallment.status != "paid")
+            .order_by(LoanInstallment.due_date, LoanInstallment.installment_number)
+            .offset(pagination.offset)
+            .limit(pagination.limit)
+            .all()
+        )
+        return [
+            LoanPaymentViewResponse(
+                id=item.id,
+                status="pending",
+                kind="payment",
+                date=item.due_date,
+                amount=item.total_amount,
+                principal_amount=item.principal_amount,
+                interest_amount=item.interest_amount,
+                extra_principal=0,
+            )
+            for item in installments
+        ]
+
+    payments = (
+        db.query(LoanPayment)
+        .filter(LoanPayment.loan_id == loan.id)
+        .order_by(LoanPayment.payment_date.desc(), LoanPayment.id.desc())
+        .offset(pagination.offset)
+        .limit(pagination.limit)
+        .all()
+    )
+    return [
+        LoanPaymentViewResponse(
+            id=item.id,
+            status="paid",
+            kind="abono" if item.extra_principal > 0 else "payment",
+            date=item.payment_date,
+            amount=item.total_amount,
+            principal_amount=item.principal_paid,
+            interest_amount=item.interest_paid,
+            extra_principal=item.extra_principal,
+            notes=item.notes,
+        )
+        for item in payments
+    ]
 
 
 @router.patch("/{loan_id}", response_model=LoanResponse)

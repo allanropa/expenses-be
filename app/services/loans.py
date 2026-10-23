@@ -5,7 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.loan_schemas import LoanCreate, LoanPaymentCreate
-from app.domain.loans import amortization_schedule
+from app.domain.loans import amortization_schedule, schedule_with_payment
 from app.domain.money import normalize_amount, normalize_currency
 from app.models.ledger import AccountMovement, Category, FinancialTransaction
 from app.models.loans import Loan, LoanInstallment, LoanMovement, LoanPayment
@@ -15,6 +15,13 @@ from app.domain.enums import InstallmentStatus, LoanStatus, TransactionStatus
 
 def get_owned_loan(db: Session, user_id: int, loan_id: int) -> Loan:
     loan = db.query(Loan).filter(Loan.id == loan_id, Loan.user_id == user_id, Loan.status == TransactionStatus.ACTIVE).one_or_none()
+    if loan is None:
+        raise not_found("Préstamo no encontrado")
+    return loan
+
+
+def get_owned_loan_for_read(db: Session, user_id: int, loan_id: int) -> Loan:
+    loan = db.query(Loan).filter(Loan.id == loan_id, Loan.user_id == user_id).one_or_none()
     if loan is None:
         raise not_found("Préstamo no encontrado")
     return loan
@@ -126,15 +133,23 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
     installment = db.query(LoanInstallment).filter(LoanInstallment.loan_id == loan.id, LoanInstallment.status != "paid").order_by(LoanInstallment.installment_number).first()
     if installment is None:
         raise HTTPException(status_code=422, detail="No hay cuotas pendientes")
-    scheduled_amount = normalize_amount(payload.scheduled_amount or installment.total_amount, loan.currency)
-    extra = normalize_amount(payload.extra_principal, loan.currency, positive=False)
-    if payload.interest_paid is not None:
-        interest_paid = normalize_amount(payload.interest_paid, loan.currency, positive=False)
+    if payload.is_abono:
+        extra = normalize_amount(payload.extra_principal, loan.currency, positive=False)
+        if extra <= 0:
+            raise HTTPException(status_code=422, detail="El abono debe ser mayor que cero")
+        scheduled_amount = Decimal("0")
+        interest_paid = Decimal("0")
+        principal_paid = Decimal("0")
     else:
-        interest_paid = min(Decimal(installment.interest_amount), scheduled_amount)
-    if interest_paid > scheduled_amount:
+        scheduled_amount = normalize_amount(payload.scheduled_amount or installment.total_amount, loan.currency)
+        extra = normalize_amount(payload.extra_principal, loan.currency, positive=False)
+        if payload.interest_paid is not None:
+            interest_paid = normalize_amount(payload.interest_paid, loan.currency, positive=False)
+        else:
+            interest_paid = min(Decimal(installment.interest_amount), scheduled_amount)
+        principal_paid = scheduled_amount - interest_paid
+    if interest_paid > scheduled_amount and not payload.is_abono:
         raise HTTPException(status_code=422, detail="El interés pagado no puede superar el monto programado")
-    principal_paid = scheduled_amount - interest_paid
     total = scheduled_amount + extra
     extra_charge_total = sum(
         (normalize_amount(charge.amount, loan.currency) for charge in payload.extra_charges or []),
@@ -142,7 +157,7 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
     )
     if total + extra_charge_total > account_balance(db, source):
         raise HTTPException(status_code=422, detail="El pago supera el saldo disponible de la cuenta")
-    if principal_paid > balance:
+    if principal_paid + extra > balance:
         raise HTTPException(status_code=422, detail="El abono supera el capital pendiente")
     operation = create_operation(db, user_id, "loan_payment", payload.payment_date)
     db.add(LoanMovement(operation_id=operation.id, loan_id=loan.id, amount=-principal_paid - extra, currency=loan.currency, movement_type="principal_payment"))
@@ -190,10 +205,11 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
             payment_method="debit",
             description=f"Abono a capital: {loan.name}",
         ))
-    if scheduled_amount >= installment.total_amount and extra == 0:
-        installment.status = InstallmentStatus.PAID
-    else:
-        installment.status = InstallmentStatus.PARTIAL
+    if not payload.is_abono:
+        if scheduled_amount >= installment.total_amount:
+            installment.status = InstallmentStatus.PAID
+        else:
+            installment.status = InstallmentStatus.PARTIAL
     db.flush()
     if principal_total >= balance:
         loan.status = LoanStatus.ARCHIVED
@@ -202,6 +218,42 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
             LoanInstallment.status != InstallmentStatus.PAID,
         ).delete(synchronize_session=False)
         db.flush()
+    elif extra > 0 and (payload.recalculate_installments or payload.is_abono):
+        first_pending = (
+            db.query(LoanInstallment)
+            .filter(LoanInstallment.loan_id == loan.id, LoanInstallment.status != InstallmentStatus.PAID)
+            .order_by(LoanInstallment.installment_number)
+            .first()
+        )
+        if first_pending is not None:
+            remaining = normalize_amount(outstanding_principal(db, loan.id), loan.currency, positive=False)
+            db.query(LoanInstallment).filter(
+                LoanInstallment.loan_id == loan.id,
+                LoanInstallment.status != InstallmentStatus.PAID,
+            ).delete(synchronize_session=False)
+            try:
+                schedule = schedule_with_payment(
+                    remaining,
+                    loan.monthly_rate,
+                    installment.total_amount if payload.is_abono else scheduled_amount,
+                    loan.currency,
+                    first_pending.due_date,
+                    first_pending.installment_number,
+                )
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
+            for item in schedule:
+                db.add(
+                    LoanInstallment(
+                        loan_id=loan.id,
+                        installment_number=item.number,
+                        due_date=item.due_date,
+                        principal_amount=item.principal,
+                        interest_amount=item.interest,
+                        total_amount=item.total,
+                    )
+                )
+            db.flush()
     if payload.extra_charges:
         for charge in payload.extra_charges:
             category = get_owned_category(db, user_id, charge.category_id)
