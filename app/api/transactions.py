@@ -218,7 +218,9 @@ def update_transaction(
         currency=payload.currency or original.currency,
         transaction_date=payload.transaction_date or original.transaction_date,
         account_id=payload.account_id or original.account_id,
-        category_id=payload.category_id or original.category_id,
+        category_id=(payload.category_ids[0] if payload.category_ids else payload.category_id)
+        or original.category_id,
+        category_ids=payload.category_ids if payload.category_ids is not None else original.category_ids,
         description=payload.description if payload.description is not None else original.description,
         notes=payload.notes if payload.notes is not None else original.notes,
     )
