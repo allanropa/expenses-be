@@ -2,7 +2,8 @@ from datetime import date
 from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
-from sqlalchemy import Integer, cast as sql_cast, literal, or_, select, union_all
+from sqlalchemy import Integer, String, cast as sql_cast, literal, or_, select, union_all
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuthContext, get_auth_context, require_csrf
@@ -80,6 +81,7 @@ def list_transactions(
     date_to: date | None = None,
     transaction_type: str | None = None,
     account_id: int | None = None,
+    card_id: int | None = None,
     category_id: int | None = None,
     search: str | None = None,
     pagination: Pagination = Depends(),
@@ -129,9 +131,17 @@ def list_transactions(
         transfer_entries = transfer_entries.where(
             or_(Transfer.source_account_id == account_id, Transfer.destination_account_id == account_id)
         )
+    if card_id:
+        transaction_entries = transaction_entries.where(FinancialTransaction.card_id == card_id)
+        transfer_entries = transfer_entries.where(literal(False))
     if category_id:
+        category_ids_match = (
+            sql_cast(FinancialTransaction.category_ids, JSONB).contains([category_id])
+            if db.bind is not None and db.bind.dialect.name == "postgresql"
+            else sql_cast(FinancialTransaction.category_ids, String).contains(f"[{category_id}]")
+        )
         transaction_entries = transaction_entries.where(
-            or_(FinancialTransaction.category_id == category_id, FinancialTransaction.category_ids.contains([category_id]))
+            or_(FinancialTransaction.category_id == category_id, category_ids_match)
         )
         transfer_entries = transfer_entries.where(literal(False))
     if search:
