@@ -39,6 +39,24 @@ def validate_budget_target(
         raise HTTPException(status_code=404, detail=f"{label} no encontrada")
 
 
+def validate_budget_categories(db: Session, user_id: int, category_ids: list[int] | None) -> None:
+    ids = set(category_ids or [])
+    if not ids:
+        return
+    found = db.query(Category.id).filter(Category.user_id == user_id, Category.id.in_(ids)).all()
+    if len(found) != len(ids):
+        raise HTTPException(status_code=404, detail="Categoría no encontrada")
+
+
+def validate_budget_targets(db: Session, user_id: int, model, ids: list[int] | None, label: str) -> None:
+    unique_ids = set(ids or [])
+    if not unique_ids:
+        return
+    found = db.query(model.id).filter(model.user_id == user_id, model.id.in_(unique_ids)).all()
+    if len(found) != len(unique_ids):
+        raise HTTPException(status_code=404, detail=f"{label} no encontrada")
+
+
 def owned_budget(db: Session, user_id: int, budget_id: int) -> Budget:
     budget = db.query(Budget).filter(Budget.id == budget_id, Budget.user_id == user_id, Budget.is_archived.is_(False)).one_or_none()
     if budget is None:
@@ -53,7 +71,11 @@ def list_budgets(archived: bool = Query(False), context: AuthContext = Depends(g
 
 @router.post("", response_model=BudgetResponse, status_code=status.HTTP_201_CREATED)
 def create_new_budget(payload: BudgetCreate, context: AuthContext = Depends(require_csrf), db: Session = Depends(get_db)):
-    validate_budget_target(db, context.user.id, payload.scope, payload.category_id, payload.account_id, payload.card_id)
+    for category_id in payload.category_ids or [payload.category_id]:
+        validate_budget_target(db, context.user.id, payload.scope, category_id, payload.account_id, payload.card_id)
+    validate_budget_categories(db, context.user.id, payload.category_ids)
+    validate_budget_targets(db, context.user.id, Account, payload.account_ids, "Cuenta")
+    validate_budget_targets(db, context.user.id, CreditCard, payload.card_ids, "Tarjeta")
     budget = create_budget(db, context.user.id, payload)
     db.commit()
     db.refresh(budget)
@@ -99,10 +121,19 @@ def update_budget(
         budget.spending_type = payload.spending_type
     if payload.category_id is not None:
         budget.category_id = payload.category_id
+    if payload.category_ids is not None:
+        budget.category_ids = list(dict.fromkeys(payload.category_ids))
+        budget.category_id = budget.category_ids[0] if budget.category_ids else None
     if payload.account_id is not None:
         budget.account_id = payload.account_id
+    if payload.account_ids is not None:
+        budget.account_ids = list(dict.fromkeys(payload.account_ids))
+        budget.account_id = budget.account_ids[0] if budget.account_ids else None
     if payload.card_id is not None:
         budget.card_id = payload.card_id
+    if payload.card_ids is not None:
+        budget.card_ids = list(dict.fromkeys(payload.card_ids))
+        budget.card_id = budget.card_ids[0] if budget.card_ids else None
     if payload.eligible_weekdays is not None:
         budget.eligible_weekdays = payload.eligible_weekdays
     if payload.start_date is not None:
@@ -111,11 +142,11 @@ def update_budget(
         budget.end_date = payload.end_date
     if budget.end_date < budget.start_date:
         raise HTTPException(status_code=422, detail="El final no puede preceder al inicio")
-    if budget.scope == BudgetScope.ACCOUNT and budget.account_id is None:
-        raise HTTPException(status_code=422, detail="Un presupuesto de cuenta requiere una cuenta")
-    if budget.scope == BudgetScope.CARD and budget.card_id is None:
-        raise HTTPException(status_code=422, detail="Un presupuesto de tarjeta requiere una tarjeta")
-    validate_budget_target(db, context.user.id, budget.scope, budget.category_id, budget.account_id, budget.card_id)
+    for category_id in budget.category_ids or [budget.category_id]:
+        validate_budget_target(db, context.user.id, budget.scope, category_id, budget.account_id, budget.card_id)
+    validate_budget_categories(db, context.user.id, budget.category_ids)
+    validate_budget_targets(db, context.user.id, Account, budget.account_ids, "Cuenta")
+    validate_budget_targets(db, context.user.id, CreditCard, budget.card_ids, "Tarjeta")
     if payload.alert_threshold is not None:
         budget.alert_threshold = payload.alert_threshold
     db.commit()

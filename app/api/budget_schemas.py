@@ -18,8 +18,11 @@ class BudgetCreate(BaseModel):
     scope: BudgetScope = BudgetScope.GENERAL
     spending_type: SpendingType
     category_id: int | None = None
+    category_ids: list[int] | None = None
     account_id: int | None = None
+    account_ids: list[int] | None = None
     card_id: int | None = None
+    card_ids: list[int] | None = None
     eligible_weekdays: list[int] | None = None
     alert_threshold: Decimal = Field(default=Decimal("0.8"), ge=0, le=1)
 
@@ -29,13 +32,9 @@ class BudgetCreate(BaseModel):
             raise ValueError("Un presupuesto personalizado requiere fecha de inicio y fin")
         if self.start_date is not None and self.end_date is not None and self.end_date < self.start_date:
             raise ValueError("El final del presupuesto no puede preceder al inicio")
-        if self.scope == BudgetScope.CATEGORY and self.category_id is None:
+        if self.scope == BudgetScope.CATEGORY and not (self.category_ids or self.category_id):
             raise ValueError("Un presupuesto de categoría requiere una categoría")
-        if self.scope == BudgetScope.ACCOUNT and self.account_id is None:
-            raise ValueError("Un presupuesto de cuenta requiere una cuenta")
-        if self.scope == BudgetScope.CARD and self.card_id is None:
-            raise ValueError("Un presupuesto de tarjeta requiere una tarjeta")
-        if self.scope == BudgetScope.GENERAL and any(value is not None for value in (self.category_id, self.account_id, self.card_id)):
+        if self.scope == BudgetScope.GENERAL and any(value is not None for value in (self.account_id, self.card_id)):
             raise ValueError("Un presupuesto general no puede tener un objetivo")
         if self.eligible_weekdays is not None and any(day not in range(7) for day in self.eligible_weekdays):
             raise ValueError("Los días elegibles deben estar entre 0 y 6")
@@ -55,8 +54,11 @@ class BudgetResponse(BaseModel):
     scope: str
     spending_type: str
     category_id: int | None
+    category_ids: list[int] | None
     account_id: int | None
+    account_ids: list[int] | None
     card_id: int | None
+    card_ids: list[int] | None
     eligible_weekdays: list[int] | None
     alert_threshold: Decimal
     is_archived: bool
@@ -72,8 +74,11 @@ class BudgetUpdate(BaseModel):
     scope: BudgetScope | None = None
     spending_type: SpendingType | None = None
     category_id: int | None = None
+    category_ids: list[int] | None = None
     account_id: int | None = None
+    account_ids: list[int] | None = None
     card_id: int | None = None
+    card_ids: list[int] | None = None
     eligible_weekdays: list[int] | None = None
     alert_threshold: Decimal | None = Field(default=None, ge=0, le=1)
 

@@ -4,7 +4,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0009_allow_duplicate_entity_names"
+revision = "0009_duplicate_names"
 down_revision = "0008_query_indexes"
 branch_labels = None
 depends_on = None

@@ -79,6 +79,7 @@ class TransactionCreate(BaseModel):
     transaction_date: date
     account_id: int
     category_id: int
+    category_ids: list[int] | None = None
     description: str | None = Field(default=None, max_length=2000)
     notes: str | None = Field(default=None, max_length=5000)
 
@@ -95,6 +96,7 @@ class TransactionUpdate(BaseModel):
     transaction_date: date | None = None
     account_id: int | None = None
     category_id: int | None = None
+    category_ids: list[int] | None = None
     description: str | None = Field(default=None, max_length=2000)
     notes: str | None = Field(default=None, max_length=5000)
 

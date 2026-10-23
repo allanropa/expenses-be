@@ -32,6 +32,7 @@ def response_for(transaction: FinancialTransaction) -> TransactionResponse:
         card_id=transaction.card_id,
         credit_purchase_id=transaction.credit_purchase_id,
         category_id=transaction.category_id,
+        category_ids=transaction.category_ids or [transaction.category_id],
         destination_account_id=None,
         payment_method=transaction.payment_method,
         description=transaction.description,
@@ -129,7 +130,9 @@ def list_transactions(
             or_(Transfer.source_account_id == account_id, Transfer.destination_account_id == account_id)
         )
     if category_id:
-        transaction_entries = transaction_entries.where(FinancialTransaction.category_id == category_id)
+        transaction_entries = transaction_entries.where(
+            or_(FinancialTransaction.category_id == category_id, FinancialTransaction.category_ids.contains([category_id]))
+        )
         transfer_entries = transfer_entries.where(literal(False))
     if search:
         transaction_entries = transaction_entries.where(FinancialTransaction.description.ilike(f"%{search}%"))

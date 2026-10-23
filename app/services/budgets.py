@@ -43,9 +43,18 @@ def budget_transactions(db: Session, budget: Budget, start: date, end: date, poo
         and item.payment_method == budget.spending_type
         and item.currency == budget.currency
         and start <= item.transaction_date <= end
-        and (budget.scope != BudgetScope.CATEGORY or item.category_id == budget.category_id)
-        and (budget.scope != BudgetScope.ACCOUNT or item.account_id == budget.account_id)
-        and (budget.scope != BudgetScope.CARD or item.card_id == budget.card_id)
+        and (
+            (
+                bool(budget.category_ids)
+                and any(category_id in budget.category_ids for category_id in (item.category_ids or [item.category_id]))
+            )
+            or (
+                not budget.category_ids
+                and (budget.scope != BudgetScope.CATEGORY or item.category_id == budget.category_id)
+            )
+        )
+        and (budget.scope != BudgetScope.ACCOUNT or not budget.account_ids or item.account_id in budget.account_ids)
+        and (budget.scope != BudgetScope.CARD or not budget.card_ids or item.card_id in budget.card_ids)
     )]
     return sorted(transactions, key=lambda item: (item.transaction_date, item.id))
 

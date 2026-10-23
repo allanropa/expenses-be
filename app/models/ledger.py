@@ -6,9 +6,11 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    JSON,
     Numeric,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -84,6 +86,7 @@ class FinancialTransaction(Base):
     credit_purchase_id: Mapped[int | None] = mapped_column(ForeignKey("credit_purchases.id", ondelete="RESTRICT"), nullable=True, index=True)
     payment_method: Mapped[str] = mapped_column(String(8), nullable=False, default="debit")
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id", ondelete="RESTRICT"), nullable=False, index=True)
+    category_ids: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active", index=True)

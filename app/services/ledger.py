@@ -73,11 +73,12 @@ def create_transaction(
     idempotency_key: str | None = None,
 ) -> FinancialTransaction:
     account = get_owned_account(db, user_id, payload.account_id)
-    category = get_owned_category(db, user_id, payload.category_id)
+    category_ids = list(dict.fromkeys(payload.category_ids or [payload.category_id]))
+    categories = [get_owned_category(db, user_id, category_id) for category_id in category_ids]
     if account.currency != normalize_currency(payload.currency):
         raise HTTPException(status_code=422, detail="La moneda no coincide con la cuenta")
-    if category.kind not in (CategoryKind.BOTH, payload.transaction_type):
-        raise HTTPException(status_code=422, detail="La categoría no corresponde al tipo de transacción")
+    if any(category.kind not in (CategoryKind.BOTH, payload.transaction_type) for category in categories):
+        raise HTTPException(status_code=422, detail="Una categoría no corresponde al tipo de transacción")
     try:
         amount = normalize_amount(payload.amount, account.currency)
     except ValueError as exc:
@@ -96,7 +97,8 @@ def create_transaction(
         currency=account.currency,
         transaction_date=payload.transaction_date,
         account_id=account.id,
-        category_id=category.id,
+        category_id=categories[0].id,
+        category_ids=category_ids,
         description=payload.description,
         notes=payload.notes,
     )
