@@ -82,6 +82,7 @@ class TransactionCreate(BaseModel):
     category_ids: list[int] | None = None
     description: str | None = Field(default=None, max_length=2000)
     notes: str | None = Field(default=None, max_length=5000)
+    is_recurring: bool = False
 
     @field_validator("currency")
     @classmethod
@@ -99,6 +100,7 @@ class TransactionUpdate(BaseModel):
     category_ids: list[int] | None = None
     description: str | None = Field(default=None, max_length=2000)
     notes: str | None = Field(default=None, max_length=5000)
+    is_recurring: bool | None = None
 
     @field_validator("currency")
     @classmethod
@@ -124,6 +126,7 @@ class TransactionResponse(BaseModel):
     description: str | None
     notes: str | None
     status: str
+    is_recurring: bool
 
 
 class TransferCreate(BaseModel):

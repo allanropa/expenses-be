@@ -1,13 +1,40 @@
+from contextlib import asynccontextmanager
+
+from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api import accounts, auth, budgets, cards, categories, dashboard, loans, settings, transactions, transfers
+from app.api import accounts, auth, budgets, cards, categories, dashboard, loans, recurring, settings, transactions, transfers
 from app.api.schemas import HealthResponse
 from app.core.config import settings as app_settings
 from app.db.session import engine
 
-app = FastAPI(title="Personal Expense Tracker API", version="0.1.0")
+scheduler = BackgroundScheduler()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    from app.services.recurring import process_due_recurring_payments
+
+    scheduler.add_job(
+        process_due_recurring_payments,
+        "interval",
+        hours=1,
+        id="process-recurring-payments",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.start()
+    process_due_recurring_payments()
+    try:
+        yield
+    finally:
+        scheduler.shutdown(wait=False)
+
+
+app = FastAPI(title="Personal Expense Tracker API", version="0.1.0", lifespan=lifespan)
 
 # Configure CORS with an explicit origin allowlist.
 cors_origins = [
@@ -35,6 +62,7 @@ app.include_router(settings.router)
 app.include_router(accounts.router)
 app.include_router(categories.router)
 app.include_router(transactions.router)
+app.include_router(recurring.router)
 app.include_router(transfers.router)
 app.include_router(cards.router)
 app.include_router(budgets.router)

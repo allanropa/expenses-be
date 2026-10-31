@@ -141,6 +141,7 @@ def dashboard(
                 "category_id": None,
                 "source": account_names.get(item.source_account_id, f"Cuenta #{item.source_account_id}"),
                 "destination": account_names.get(item.destination_account_id, f"Cuenta #{item.destination_account_id}"),
+                "is_recurring": False,
             })
             continue
         source = account_names.get(item.account_id) if item.account_id is not None else (card_names.get(item.card_id, "") if item.card_id is not None else "")
@@ -158,6 +159,7 @@ def dashboard(
             "category_id": item.category_id,
             "source": source,
             "destination": None,
+            "is_recurring": item.is_recurring,
         })
     return {
         "period": {"start": period_start, "end": period_end},

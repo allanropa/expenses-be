@@ -31,6 +31,7 @@ def budget_transactions(db: Session, budget: Budget, start: date, end: date, poo
             FinancialTransaction.user_id == budget.user_id,
             FinancialTransaction.transaction_type == TransactionType.EXPENSE,
             FinancialTransaction.status == TransactionStatus.ACTIVE,
+            FinancialTransaction.is_recurring.is_(False),
             FinancialTransaction.payment_method == budget.spending_type,
             FinancialTransaction.currency == budget.currency,
             FinancialTransaction.transaction_date >= start,
@@ -40,6 +41,7 @@ def budget_transactions(db: Session, budget: Budget, start: date, end: date, poo
         item.user_id == budget.user_id
         and item.transaction_type == TransactionType.EXPENSE
         and item.status == TransactionStatus.ACTIVE
+        and not item.is_recurring
         and item.payment_method == budget.spending_type
         and item.currency == budget.currency
         and start <= item.transaction_date <= end

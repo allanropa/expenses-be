@@ -2,6 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -89,6 +90,7 @@ class FinancialTransaction(Base):
     category_ids: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_recurring: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active", index=True)
     replaced_by_id: Mapped[int | None] = mapped_column(ForeignKey("financial_transactions.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)

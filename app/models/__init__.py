@@ -13,6 +13,7 @@ from app.models.cards import (
 )
 from app.models.budgets import Alert, Budget
 from app.models.loans import Loan, LoanInstallment, LoanMovement, LoanPayment
+from app.models.recurring import RecurringPayment
 
 __all__ = [
     "Account",
@@ -36,6 +37,7 @@ __all__ = [
     "LoanInstallment",
     "LoanMovement",
     "LoanPayment",
+    "RecurringPayment",
     "Transfer",
     "User",
     "UserSettings",

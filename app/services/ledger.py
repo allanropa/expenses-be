@@ -101,6 +101,7 @@ def create_transaction(
         category_ids=category_ids,
         description=payload.description,
         notes=payload.notes,
+        is_recurring=payload.is_recurring,
     )
     db.add(transaction)
     db.flush()

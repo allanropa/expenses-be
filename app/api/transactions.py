@@ -39,6 +39,7 @@ def response_for(transaction: FinancialTransaction) -> TransactionResponse:
         description=transaction.description,
         notes=transaction.notes,
         status=transaction.status,
+        is_recurring=transaction.is_recurring,
     )
 
 
@@ -63,6 +64,7 @@ def response_for_transfer(transfer: Transfer) -> TransactionResponse:
         description=transfer.description,
         notes=None,
         status="active",
+        is_recurring=False,
     )
 
 
@@ -84,6 +86,7 @@ def list_transactions(
     card_id: int | None = None,
     category_id: int | None = None,
     search: str | None = None,
+    is_recurring: bool | None = None,
     pagination: Pagination = Depends(),
     context: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db),
@@ -147,6 +150,9 @@ def list_transactions(
     if search:
         transaction_entries = transaction_entries.where(FinancialTransaction.description.ilike(f"%{search}%"))
         transfer_entries = transfer_entries.where(Transfer.description.ilike(f"%{search}%"))
+    if is_recurring is not None:
+        transaction_entries = transaction_entries.where(FinancialTransaction.is_recurring.is_(is_recurring))
+        transfer_entries = transfer_entries.where(literal(False))
 
     entries = union_all(transaction_entries, transfer_entries).subquery()
     rows = db.execute(
@@ -223,6 +229,7 @@ def update_transaction(
         category_ids=payload.category_ids if payload.category_ids is not None else original.category_ids,
         description=payload.description if payload.description is not None else original.description,
         notes=payload.notes if payload.notes is not None else original.notes,
+        is_recurring=payload.is_recurring if payload.is_recurring is not None else original.is_recurring,
     )
     reverse_transaction(db, context.user.id, original, "update")
     replacement = create_transaction(db, context.user.id, replacement_payload)
