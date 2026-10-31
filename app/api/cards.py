@@ -136,6 +136,7 @@ def payment_response(payment: CardPayment) -> PaymentResponse:
         source_account_id=payment.source_account_id,
         obligation_amount=payment.obligation_amount,
         obligation_currency=payment.obligation_currency,
+        total_paid=payment.total_paid,
         source_amount=payment.source_amount,
         source_currency=payment.source_currency,
         exchange_rate=payment.exchange_rate,

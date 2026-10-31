@@ -37,6 +37,7 @@ def dashboard(
     transactions = db.query(FinancialTransaction).filter(
         FinancialTransaction.user_id == context.user.id,
         FinancialTransaction.status == TransactionStatus.ACTIVE,
+        FinancialTransaction.is_payment_component.is_(False),
         FinancialTransaction.transaction_date >= period_start,
         FinancialTransaction.transaction_date <= period_end,
     ).all()

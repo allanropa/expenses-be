@@ -127,6 +127,9 @@ class TransactionResponse(BaseModel):
     notes: str | None
     status: str
     is_recurring: bool
+    is_payment_component: bool = False
+    payment_component_type: str | None = None
+    payment_component_id: int | None = None
 
 
 class TransferCreate(BaseModel):

@@ -140,6 +140,7 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
         scheduled_amount = Decimal("0")
         interest_paid = Decimal("0")
         principal_paid = Decimal("0")
+        total_paid = Decimal("0")
     else:
         scheduled_amount = normalize_amount(payload.scheduled_amount or installment.total_amount, loan.currency)
         extra = normalize_amount(payload.extra_principal, loan.currency, positive=False)
@@ -147,15 +148,22 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
             interest_paid = normalize_amount(payload.interest_paid, loan.currency, positive=False)
         else:
             interest_paid = min(Decimal(installment.interest_amount), scheduled_amount)
-        principal_paid = scheduled_amount - interest_paid
+        extra_charge_total = sum(
+            (normalize_amount(charge.amount, loan.currency) for charge in payload.extra_charges or []),
+            Decimal("0"),
+        )
+        total_paid = normalize_amount(payload.total_paid or scheduled_amount + extra_charge_total, loan.currency)
+        principal_paid = total_paid - interest_paid - extra_charge_total
+        if principal_paid < 0:
+            raise HTTPException(status_code=422, detail="El total pagado no cubre gastos e intereses")
     if interest_paid > scheduled_amount and not payload.is_abono:
         raise HTTPException(status_code=422, detail="El interés pagado no puede superar el monto programado")
-    total = scheduled_amount + extra
+    total = total_paid + extra
     extra_charge_total = sum(
         (normalize_amount(charge.amount, loan.currency) for charge in payload.extra_charges or []),
         Decimal("0"),
     )
-    if total + extra_charge_total > account_balance(db, source):
+    if total > account_balance(db, source):
         raise HTTPException(status_code=422, detail="El pago supera el saldo disponible de la cuenta")
     if principal_paid + extra > balance:
         raise HTTPException(status_code=422, detail="El abono supera el capital pendiente")
@@ -171,6 +179,7 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
         interest_paid=interest_paid,
         extra_principal=extra,
         total_amount=total,
+        total_paid=total,
         notes=payload.notes,
     )
     db.add(payment)
@@ -188,6 +197,9 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
             category_id=loan.interest_category_id,
             payment_method="debit",
             description=f"Interés de préstamo: {loan.name}",
+            is_payment_component=True,
+            payment_component_type="loan_payment",
+            payment_component_id=payment.id,
         ))
     principal_total = principal_paid + extra
     if principal_total > 0:
@@ -271,5 +283,8 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
                 category_id=category.id,
                 payment_method="debit",
                 description=charge.description,
+                is_payment_component=True,
+                payment_component_type="loan_payment",
+                payment_component_id=payment.id,
             ))
     return payment

@@ -66,4 +66,5 @@ class LoanPayment(Base):
     interest_paid: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
     extra_principal: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
+    total_paid: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

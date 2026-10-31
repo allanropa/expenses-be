@@ -45,6 +45,7 @@ class LoanPaymentCreate(BaseModel):
     source_account_id: int
     payment_date: date
     scheduled_amount: Decimal | None = Field(default=None, gt=0)
+    total_paid: Decimal | None = Field(default=None, gt=0)
     interest_paid: Decimal | None = Field(default=None, ge=0)
     extra_principal: Decimal = Field(default=Decimal("0"), ge=0)
     recalculate_installments: bool = False
@@ -100,4 +101,5 @@ class LoanPaymentResponse(BaseModel):
     interest_paid: Decimal
     extra_principal: Decimal
     total_amount: Decimal
+    total_paid: Decimal
     notes: str | None

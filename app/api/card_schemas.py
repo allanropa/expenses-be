@@ -141,13 +141,15 @@ class PaymentExtraCharge(BaseModel):
     amount: Decimal = Field(gt=0)
     category_id: int
     description: str = Field(min_length=1, max_length=2000)
+    charge_type: Literal["interest", "fee"] = "fee"
 
 
 class PaymentCreate(BaseModel):
     card_id: int
     source_account_id: int | None = None
-    obligation_amount: Decimal = Field(gt=0)
+    obligation_amount: Decimal = Field(ge=0)
     obligation_currency: str = Field(min_length=3, max_length=3)
+    total_paid: Decimal | None = Field(default=None, gt=0)
     source_amount: Decimal | None = Field(default=None, gt=0)
     exchange_rate: Decimal | None = Field(default=None, gt=0)
     fee_amount: Decimal | None = Field(default=None, gt=0)
@@ -167,6 +169,7 @@ class PaymentResponse(BaseModel):
     source_account_id: int | None
     obligation_amount: Decimal
     obligation_currency: str
+    total_paid: Decimal
     source_amount: Decimal | None
     source_currency: str | None
     exchange_rate: Decimal | None

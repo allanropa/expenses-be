@@ -83,8 +83,10 @@ class CardCharge(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    operation_id: Mapped[int | None] = mapped_column(ForeignKey("financial_operations.id", ondelete="SET NULL"), nullable=True, index=True)
     card_id: Mapped[int] = mapped_column(ForeignKey("credit_cards.id", ondelete="RESTRICT"), nullable=False, index=True)
     purchase_id: Mapped[int | None] = mapped_column(ForeignKey("credit_purchases.id", ondelete="RESTRICT"), nullable=True)
+    payment_id: Mapped[int | None] = mapped_column(ForeignKey("card_payments.id", ondelete="SET NULL"), nullable=True, index=True)
     charge_type: Mapped[str] = mapped_column(String(24), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
@@ -103,6 +105,7 @@ class CardPayment(Base):
     source_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id", ondelete="RESTRICT"), nullable=True)
     obligation_amount: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
     obligation_currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    total_paid: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
     source_amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
     source_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(20, 10), nullable=True)

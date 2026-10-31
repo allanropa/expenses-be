@@ -40,6 +40,9 @@ def response_for(transaction: FinancialTransaction) -> TransactionResponse:
         notes=transaction.notes,
         status=transaction.status,
         is_recurring=transaction.is_recurring,
+        is_payment_component=transaction.is_payment_component,
+        payment_component_type=transaction.payment_component_type,
+        payment_component_id=transaction.payment_component_id,
     )
 
 

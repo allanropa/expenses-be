@@ -117,7 +117,7 @@ def create_purchase(db: Session, user_id: int, payload: PurchaseCreate, idempote
     db.add(purchase)
     db.flush()
     db.add(CardMovement(operation_id=operation.id, card_id=card.id, amount=amount, currency=currency))
-    charge = CardCharge(user_id=user_id, card_id=card.id, purchase_id=purchase.id, charge_type="purchase_principal", amount=amount, currency=currency, charge_date=payload.purchase_date, is_estimated=False, description=payload.description)
+    charge = CardCharge(user_id=user_id, card_id=card.id, purchase_id=purchase.id, operation_id=operation.id, charge_type="purchase_principal", amount=amount, currency=currency, charge_date=payload.purchase_date, is_estimated=False, description=payload.description)
     db.add(charge)
     transaction = FinancialTransaction(
         operation_id=operation.id,
@@ -155,7 +155,7 @@ def create_charge(db: Session, user_id: int, card_id: int, payload: CardChargeCr
     amount = normalize_amount(payload.amount, currency)
     operation = create_operation(db, user_id, f"card_{payload.charge_type}", payload.charge_date)
     db.add(CardMovement(operation_id=operation.id, card_id=card.id, amount=amount, currency=currency))
-    charge = CardCharge(user_id=user_id, card_id=card.id, charge_type=payload.charge_type, amount=amount, currency=currency, charge_date=payload.charge_date, is_estimated=False, description=payload.description)
+    charge = CardCharge(user_id=user_id, card_id=card.id, operation_id=operation.id, charge_type=payload.charge_type, amount=amount, currency=currency, charge_date=payload.charge_date, is_estimated=False, description=payload.description)
     db.add(charge)
     db.add(FinancialTransaction(
         operation_id=operation.id,
@@ -178,9 +178,17 @@ def create_payment(db: Session, user_id: int, payload: PaymentCreate, idempotenc
     card = get_owned_card(db, user_id, payload.card_id)
     obligation_currency = normalize_currency(payload.obligation_currency)
     supported_currency(db, card.id, obligation_currency)
-    obligation_amount = normalize_amount(payload.obligation_amount, obligation_currency)
+    obligation_amount = normalize_amount(payload.obligation_amount, obligation_currency, positive=False)
+    extra_total = sum(
+        (normalize_amount(charge.amount, obligation_currency) for charge in payload.extra_charges or []),
+        Decimal("0"),
+    )
+    total_paid = normalize_amount(payload.total_paid or obligation_amount + extra_total, obligation_currency)
+    principal_amount = total_paid - extra_total
+    if principal_amount < 0:
+        raise HTTPException(status_code=422, detail="El total pagado no cubre gastos e intereses")
     debt = card_debt(db, card.id, obligation_currency)
-    if obligation_amount > debt:
+    if total_paid > debt:
         raise HTTPException(status_code=422, detail="El pago supera la deuda pendiente en esa moneda")
 
     source_account = get_owned_account(db, user_id, payload.source_account_id) if payload.source_account_id else None
@@ -190,10 +198,10 @@ def create_payment(db: Session, user_id: int, payload: PaymentCreate, idempotenc
     fee_amount = None
     if source_account:
         source_currency = source_account.currency
-        source_amount = normalize_amount(payload.source_amount or payload.obligation_amount, source_currency)
+        source_amount = normalize_amount(payload.source_amount or total_paid, source_currency)
         assert source_amount is not None
         if source_currency == obligation_currency:
-            if source_amount != obligation_amount:
+            if source_amount != total_paid:
                 raise HTTPException(status_code=422, detail="El monto de origen debe coincidir con el pago")
         else:
             if payload.source_amount is None or payload.exchange_rate is None or payload.exchange_rate <= 0:
@@ -204,28 +212,21 @@ def create_payment(db: Session, user_id: int, payload: PaymentCreate, idempotenc
             exchange_rate = payload.exchange_rate
         if payload.fee_amount is not None:
             fee_amount = normalize_amount(payload.fee_amount, source_currency)
-        extra_source_total = Decimal("0")
-        for charge in payload.extra_charges or []:
-            charge_amount = normalize_amount(charge.amount, obligation_currency)
-            extra_source_total += (
-                charge_amount
-                if source_currency == obligation_currency
-                else normalize_amount(charge_amount * exchange_rate, source_currency)
-            )
-        if source_amount + (fee_amount or 0) + extra_source_total > account_balance(db, source_account):
+        if source_amount + (fee_amount or 0) > account_balance(db, source_account):
             raise HTTPException(status_code=422, detail="El pago supera el saldo disponible de la cuenta")
     elif payload.source_amount is not None or payload.exchange_rate is not None or payload.fee_amount is not None:
         raise HTTPException(status_code=422, detail="Los datos de origen requieren una cuenta")
 
     operation = create_operation(db, user_id, "card_payment", payload.payment_date, idempotency_key)
-    db.add(CardMovement(operation_id=operation.id, card_id=card.id, amount=-obligation_amount, currency=obligation_currency))
+    db.add(CardMovement(operation_id=operation.id, card_id=card.id, amount=-total_paid, currency=obligation_currency))
     payment = CardPayment(
         operation_id=operation.id,
         user_id=user_id,
         card_id=card.id,
         source_account_id=source_account.id if source_account else None,
-        obligation_amount=obligation_amount,
+        obligation_amount=principal_amount,
         obligation_currency=obligation_currency,
+        total_paid=total_paid,
         source_amount=source_amount,
         source_currency=source_currency,
         exchange_rate=exchange_rate,
@@ -236,12 +237,21 @@ def create_payment(db: Session, user_id: int, payload: PaymentCreate, idempotenc
     )
     db.add(payment)
     db.flush()
-    remaining = obligation_amount
+    remaining = total_paid
     for charge, outstanding in outstanding_charges(db, card.id, obligation_currency):
         if remaining <= 0:
             break
         applied = min(remaining, outstanding)
         db.add(CardPaymentAllocation(payment_id=payment.id, charge_id=charge.id, amount=applied))
+        if charge.charge_type in ("interest", "fee"):
+            charge.payment_id = payment.id
+            component_transaction = db.query(FinancialTransaction).filter(
+                FinancialTransaction.operation_id == charge.operation_id,
+            ).one_or_none()
+            if component_transaction is not None:
+                component_transaction.is_payment_component = True
+                component_transaction.payment_component_type = "card_payment"
+                component_transaction.payment_component_id = payment.id
         remaining -= applied
     db.flush()
     if source_account:
@@ -256,7 +266,7 @@ def create_payment(db: Session, user_id: int, payload: PaymentCreate, idempotenc
             transaction_type="payment",
             amount=total_source,
             currency=source_currency,
-            original_amount=obligation_amount if source_currency != obligation_currency else None,
+             original_amount=total_paid if source_currency != obligation_currency else None,
             original_currency=obligation_currency if source_currency != obligation_currency else None,
             transaction_date=payload.payment_date,
             account_id=source_account.id,
@@ -277,7 +287,18 @@ def create_payment(db: Session, user_id: int, payload: PaymentCreate, idempotenc
             else:
                 assert exchange_rate is not None
                 deduction = normalize_amount(ec_amount * exchange_rate, source_currency)
-            db.add(AccountMovement(operation_id=charge_operation.id, account_id=source_account.id, amount=-deduction, currency=source_currency))
+            db.add(CardCharge(
+                user_id=user_id,
+                card_id=card.id,
+                payment_id=payment.id,
+                operation_id=charge_operation.id,
+                charge_type=charge.charge_type,
+                amount=ec_amount,
+                currency=obligation_currency,
+                charge_date=payload.payment_date,
+                is_estimated=False,
+                description=charge.description,
+            ))
             db.add(FinancialTransaction(
                 operation_id=charge_operation.id,
                 user_id=user_id,
@@ -290,8 +311,11 @@ def create_payment(db: Session, user_id: int, payload: PaymentCreate, idempotenc
                 account_id=source_account.id,
                 card_id=card.id,
                 category_id=category.id,
-                payment_method="credit",
+                payment_method="debit",
                 description=charge.description,
+                is_payment_component=True,
+                payment_component_type="card_payment",
+                payment_component_id=payment.id,
             ))
     return payment
 
@@ -307,6 +331,6 @@ def adjust_card_debt(db: Session, user_id: int, card_id: int, payload: CardBalan
     operation = create_operation(db, user_id, "card_balance_adjustment", payload.adjustment_date, idempotency_key)
     db.add(CardMovement(operation_id=operation.id, card_id=card.id, amount=difference, currency=currency))
     if difference > 0:
-        db.add(CardCharge(user_id=user_id, card_id=card.id, charge_type="adjustment", amount=difference, currency=currency, charge_date=payload.adjustment_date, is_estimated=False, description=payload.description))
+        db.add(CardCharge(user_id=user_id, card_id=card.id, operation_id=operation.id, charge_type="adjustment", amount=difference, currency=currency, charge_date=payload.adjustment_date, is_estimated=False, description=payload.description))
     db.flush()
     return card
