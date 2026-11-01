@@ -10,7 +10,7 @@ from app.api.deps import AuthContext, get_auth_context
 from app.db.session import get_db
 from app.models.budgets import Budget
 from app.models.cards import CardCurrency, CardMovement, CreditCard
-from app.models.ledger import Account, FinancialOperation, FinancialTransaction, Transfer
+from app.models.ledger import Account, Category, FinancialOperation, FinancialTransaction, Transfer
 from app.models.loans import Loan, LoanMovement
 from app.services.budgets import calculate_summary, summary_period
 from app.services.ledger import account_balance
@@ -48,6 +48,36 @@ def dashboard(
             income[item.currency] = income.get(item.currency, Decimal("0")) + Decimal(item.amount)
         elif item.transaction_type == TransactionType.EXPENSE:
             expenses[item.currency] = expenses.get(item.currency, Decimal("0")) + Decimal(item.amount)
+    category_rows = db.query(
+        FinancialTransaction.currency,
+        FinancialTransaction.category_id,
+        func.sum(FinancialTransaction.amount),
+    ).filter(
+        FinancialTransaction.user_id == context.user.id,
+        FinancialTransaction.status == TransactionStatus.ACTIVE,
+        FinancialTransaction.transaction_type == TransactionType.EXPENSE,
+        FinancialTransaction.is_payment_component.is_(False),
+        FinancialTransaction.transaction_date >= period_start,
+        FinancialTransaction.transaction_date <= period_end,
+    ).group_by(
+        FinancialTransaction.currency,
+        FinancialTransaction.category_id,
+    ).all()
+    category_names = {
+        category.id: category.name
+        for category in db.query(Category).filter(Category.user_id == context.user.id).all()
+    }
+    spending_by_category = [
+        {
+            "category_id": category_id,
+            "category_name": category_names.get(category_id, "Sin categoría")
+            if category_id is not None
+            else "Sin categoría",
+            "currency": currency,
+            "amount": amount,
+        }
+        for currency, category_id, amount in category_rows
+    ]
     accounts = db.query(Account).filter(Account.user_id == context.user.id, Account.is_archived.is_(False)).all()
     cards = db.query(CreditCard).filter(CreditCard.user_id == context.user.id, CreditCard.is_archived.is_(False)).all()
     card_ids = [card.id for card in cards]
@@ -176,6 +206,7 @@ def dashboard(
         "period": {"start": period_start, "end": period_end},
         "income_by_currency": income,
         "consumption_by_currency": expenses,
+        "spending_by_category": spending_by_category,
         "difference_by_currency": {currency: income.get(currency, 0) - expenses.get(currency, 0) for currency in set(income) | set(expenses)},
         "accounts": [{"id": account.id, "name": account.name, "currency": account.currency, "balance": account_balance(db, account)} for account in accounts],
         "card_debt": debt,
