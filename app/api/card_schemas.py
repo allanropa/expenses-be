@@ -176,6 +176,7 @@ class PaymentResponse(BaseModel):
     fee_amount: Decimal | None
     payment_date: date
     notes: str | None
+    extra_charges: list[PaymentExtraCharge] = []
 
 
 class CardBalanceAdjustmentCreate(BaseModel):

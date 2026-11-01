@@ -129,7 +129,7 @@ def purchase_response(db: Session, purchase: CreditPurchase) -> PurchaseResponse
     )
 
 
-def payment_response(payment: CardPayment) -> PaymentResponse:
+def payment_response(db: Session, payment: CardPayment) -> PaymentResponse:
     return PaymentResponse(
         id=payment.id,
         card_id=payment.card_id,
@@ -143,6 +143,15 @@ def payment_response(payment: CardPayment) -> PaymentResponse:
         fee_amount=payment.fee_amount,
         payment_date=payment.payment_date,
         notes=payment.notes,
+        extra_charges=[
+            {
+                "amount": charge.amount,
+                "category_id": charge.category_id,
+                "description": charge.description or "Gasto adicional",
+                "charge_type": charge.charge_type,
+            }
+            for charge in db.query(CardCharge).filter(CardCharge.payment_id == payment.id).all()
+        ],
     )
 
 
@@ -314,7 +323,7 @@ def create_new_payment(
             existing = db.query(CardPayment).filter(CardPayment.operation_id == operation.id).one_or_none()
             if existing:
                 response.status_code = status.HTTP_200_OK
-                return payment_response(existing)
+                return payment_response(db, existing)
     try:
         payment = create_payment(db, context.user.id, payload, idempotency_key)
     except ValueError as exc:
@@ -322,14 +331,14 @@ def create_new_payment(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     db.commit()
     db.refresh(payment)
-    return payment_response(payment)
+    return payment_response(db, payment)
 
 
 @router.get("/{card_id}/payments", response_model=list[PaymentResponse])
 def list_payments(card_id: int, pagination: Pagination = Depends(), context: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
     card = get_owned_card(db, context.user.id, card_id)
     items = db.query(CardPayment).filter(CardPayment.card_id == card.id).order_by(CardPayment.payment_date.desc()).offset(pagination.offset).limit(pagination.limit).all()
-    return [payment_response(item) for item in items]
+    return [payment_response(db, item) for item in items]
 
 
 @router.get("/{card_id}/statement")

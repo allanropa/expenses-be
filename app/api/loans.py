@@ -6,6 +6,7 @@ from app.api.loan_schemas import LoanCreate, LoanInstallmentResponse, LoanPaymen
 from app.db.session import get_db
 from app.domain.money import normalize_amount
 from app.models.loans import Loan, LoanInstallment, LoanPayment
+from app.models.ledger import FinancialOperation, FinancialTransaction
 from app.services.loans import close_loan, create_loan, create_payment, get_owned_loan, get_owned_loan_for_read, outstanding_principal
 from app.domain.enums import LoanStatus, TransactionStatus
 from app.api.pagination import Pagination
@@ -98,6 +99,7 @@ def list_loan_payments(
                 principal_amount=item.principal_amount,
                 interest_amount=item.interest_amount,
                 extra_principal=0,
+                extra_charges=[],
             )
             for item in installments
         ]
@@ -121,6 +123,21 @@ def list_loan_payments(
             interest_amount=item.interest_paid,
             extra_principal=item.extra_principal,
             notes=item.notes,
+            extra_charges=[
+                {
+                    "amount": charge.amount,
+                    "category_id": charge.category_id,
+                    "description": charge.description or "Gasto adicional",
+                }
+                for charge in db.query(FinancialTransaction)
+                .join(FinancialOperation, FinancialTransaction.operation_id == FinancialOperation.id)
+                .filter(
+                    FinancialTransaction.payment_component_id == item.id,
+                    FinancialTransaction.payment_component_type == "loan_payment",
+                    FinancialOperation.operation_type == "loan_extra_charge",
+                )
+                .all()
+            ],
         )
         for item in payments
     ]

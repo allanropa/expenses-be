@@ -284,7 +284,7 @@ def create_payment(db: Session, user_id: int, loan_id: int, payload: LoanPayment
                 payment_method="debit",
                 description=charge.description,
                 is_payment_component=True,
-                payment_component_type="loan_payment",
+                payment_component_type="loan_extra_charge",
                 payment_component_id=payment.id,
             ))
     return payment

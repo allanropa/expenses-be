@@ -90,6 +90,7 @@ class LoanPaymentViewResponse(BaseModel):
     interest_amount: Decimal
     extra_principal: Decimal
     notes: str | None = None
+    extra_charges: list[dict] = []
 
 
 class LoanPaymentResponse(BaseModel):
