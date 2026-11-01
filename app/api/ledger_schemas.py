@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -77,6 +77,7 @@ class TransactionCreate(BaseModel):
     amount: Decimal
     currency: str = Field(min_length=3, max_length=3)
     transaction_date: date
+    created_at: datetime | None = None
     account_id: int
     category_id: int
     category_ids: list[int] | None = None

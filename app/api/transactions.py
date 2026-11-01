@@ -17,7 +17,7 @@ from app.api.pagination import Pagination
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
 
-def response_for(transaction: FinancialTransaction) -> TransactionResponse:
+def response_for(transaction: FinancialTransaction, created_at=None) -> TransactionResponse:
     from app.domain.money import normalize_amount
 
     return TransactionResponse(
@@ -29,6 +29,7 @@ def response_for(transaction: FinancialTransaction) -> TransactionResponse:
         original_amount=normalize_amount(transaction.original_amount, transaction.original_currency) if transaction.original_amount is not None and transaction.original_currency else None,
         original_currency=transaction.original_currency,
         transaction_date=transaction.transaction_date,
+        created_at=created_at,
         account_id=transaction.account_id,
         card_id=transaction.card_id,
         credit_purchase_id=transaction.credit_purchase_id,
@@ -46,7 +47,7 @@ def response_for(transaction: FinancialTransaction) -> TransactionResponse:
     )
 
 
-def response_for_transfer(transfer: Transfer) -> TransactionResponse:
+def response_for_transfer(transfer: Transfer, created_at=None) -> TransactionResponse:
     from app.domain.money import normalize_amount
 
     return TransactionResponse(
@@ -58,6 +59,7 @@ def response_for_transfer(transfer: Transfer) -> TransactionResponse:
         original_amount=normalize_amount(transfer.destination_amount, transfer.destination_currency),
         original_currency=transfer.destination_currency,
         transaction_date=transfer.transfer_date,
+        created_at=created_at,
         account_id=transfer.source_account_id,
         card_id=None,
         credit_purchase_id=None,
@@ -160,7 +162,7 @@ def list_transactions(
     entries = union_all(transaction_entries, transfer_entries).subquery()
     rows = db.execute(
         select(entries)
-        .order_by(entries.c.entry_date.desc(), entries.c.created_at.desc(), entries.c.id.desc())
+        .order_by(entries.c.created_at.desc(), entries.c.id.desc())
         .offset(pagination.offset)
         .limit(pagination.limit)
     ).mappings().all()
@@ -168,10 +170,10 @@ def list_transactions(
     for row in rows:
         if row["entry_type"] == "transaction":
             item = db.query(FinancialTransaction).filter(FinancialTransaction.id == row["id"]).one()
-            result.append(response_for(item))
+            result.append(response_for(item, row["created_at"]))
         else:
             transfer = db.query(Transfer).filter(Transfer.id == row["id"]).one()
-            result.append(response_for_transfer(transfer))
+            result.append(response_for_transfer(transfer, row["created_at"]))
     return result
 
 

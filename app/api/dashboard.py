@@ -110,23 +110,25 @@ def dashboard(
             "monthly_rate": loan.monthly_rate,
             "annual_effective_rate": loan.annual_effective_rate,
         })
-    recent = db.query(FinancialTransaction).filter(
+    recent = db.query(FinancialTransaction, FinancialOperation.created_at).join(
+        FinancialOperation, FinancialTransaction.operation_id == FinancialOperation.id,
+    ).filter(
         FinancialTransaction.user_id == context.user.id,
         FinancialTransaction.status == TransactionStatus.ACTIVE,
-    ).limit(20).all()
+    ).order_by(FinancialOperation.created_at.desc()).limit(20).all()
     recent_transfers = db.query(Transfer, FinancialOperation.created_at).join(
         FinancialOperation, Transfer.operation_id == FinancialOperation.id,
-    ).filter(Transfer.user_id == context.user.id).limit(20).all()
+    ).filter(Transfer.user_id == context.user.id).order_by(FinancialOperation.created_at.desc()).limit(20).all()
     account_names = {a.id: a.name for a in accounts}
     card_names = {c.id: c.name for c in cards}
-    recent_entries = [(item.transaction_date, item.created_at, item.id, "transaction", item) for item in recent]
+    recent_entries = [(item.transaction_date, created_at, item.id, "transaction", item) for item, created_at in recent]
     recent_entries.extend(
         (item.transfer_date, created_at, item.id, "transfer", item)
         for item, created_at in recent_transfers
     )
-    recent_entries.sort(key=lambda entry: (entry[0], entry[1], entry[2]), reverse=True)
+    recent_entries.sort(key=lambda entry: (entry[1], entry[2]), reverse=True)
     transaction_list = []
-    for _, _, _, entry_type, item in recent_entries[:20]:
+    for _, created_at, _, entry_type, item in recent_entries[:20]:
         if entry_type == "transfer":
             transaction_list.append({
                 "id": item.id,
@@ -137,6 +139,7 @@ def dashboard(
                 "original_amount": item.destination_amount,
                 "original_currency": item.destination_currency,
                 "transaction_date": item.transfer_date,
+                "created_at": created_at,
                 "payment_method": "transfer",
                 "description": item.description,
                 "category_id": None,
@@ -155,6 +158,7 @@ def dashboard(
             "original_amount": item.original_amount,
             "original_currency": item.original_currency,
             "transaction_date": item.transaction_date,
+            "created_at": created_at,
             "payment_method": item.payment_method,
             "description": item.description,
             "category_id": item.category_id,
