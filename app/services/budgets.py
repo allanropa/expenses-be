@@ -79,7 +79,7 @@ def summary_period(budget: Budget, start: date | None = None, end: date | None =
     else:
         period_start, period_end = start or budget.start_date, end or budget.end_date
     if budget.budget_type == BudgetType.MAXIMUM:
-        if budget.period_type == BudgetPeriod.MONTHLY:
+        if budget.period_type == BudgetPeriod.MONTHLY and end is None:
             period_end = today.replace(day=monthrange(today.year, today.month)[1])
         elif budget.period_type == BudgetPeriod.WEEKLY:
             period_end = today + timedelta(days=6 - today.weekday())

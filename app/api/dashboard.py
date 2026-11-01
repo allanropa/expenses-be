@@ -87,10 +87,10 @@ def dashboard(
     else:
         budget_transactions = []
     for budget in relevant_budgets:
-        if budget.period_type != BudgetPeriod.CUSTOM:
-            budgets.append({**calculate_summary(db, budget, pool=budget_transactions), "name": budget.name})
-        else:
-            budgets.append({**calculate_summary(db, budget, period_start, period_end, budget_transactions), "name": budget.name})
+        budgets.append({
+            **calculate_summary(db, budget, period_start, period_end, budget_transactions),
+            "name": budget.name,
+        })
     loans = []
     active_loans = db.query(Loan).filter(Loan.user_id == context.user.id, Loan.status == TransactionStatus.ACTIVE).all()
     loan_ids = [loan.id for loan in active_loans]
@@ -115,10 +115,16 @@ def dashboard(
     ).filter(
         FinancialTransaction.user_id == context.user.id,
         FinancialTransaction.status == TransactionStatus.ACTIVE,
+        FinancialTransaction.transaction_date >= period_start,
+        FinancialTransaction.transaction_date <= period_end,
     ).order_by(FinancialOperation.created_at.desc()).limit(20).all()
     recent_transfers = db.query(Transfer, FinancialOperation.created_at).join(
         FinancialOperation, Transfer.operation_id == FinancialOperation.id,
-    ).filter(Transfer.user_id == context.user.id).order_by(FinancialOperation.created_at.desc()).limit(20).all()
+    ).filter(
+        Transfer.user_id == context.user.id,
+        Transfer.transfer_date >= period_start,
+        Transfer.transfer_date <= period_end,
+    ).order_by(FinancialOperation.created_at.desc()).limit(20).all()
     account_names = {a.id: a.name for a in accounts}
     card_names = {c.id: c.name for c in cards}
     recent_entries = [(item.transaction_date, created_at, item.id, "transaction", item) for item, created_at in recent]
