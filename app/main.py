@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api import accounts, auth, budgets, cards, categories, dashboard, loans, recurring, settings, transactions, transfers
+from app.api import accounts, auth, budgets, cards, categories, dashboard, loans, mcp, recurring, settings, transactions, transfers
 from app.api.schemas import HealthResponse
 from app.core.config import settings as app_settings
 from app.db.session import engine
@@ -68,6 +68,7 @@ app.include_router(cards.router)
 app.include_router(budgets.router)
 app.include_router(dashboard.router)
 app.include_router(loans.router)
+app.include_router(mcp.router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])

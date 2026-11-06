@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     frontend_origin: str = "http://localhost:5173"
     frontend_origins: str = ""
     registration_email_whitelist: str = ""
+    mcp_api_token: str = ""
+    mcp_user_email: str = ""
 
     def is_registration_email_allowed(self, email: str) -> bool:
         allowed_emails = {

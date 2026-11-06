@@ -23,6 +23,21 @@ uvicorn app.main:app --reload
 
 Con `DATABASE_URL=sqlite:///./expenses.db` no se necesita PostgreSQL.
 
+## MCP
+
+El endpoint MCP Streamable HTTP sin estado está disponible en `POST /mcp`.
+Configura `MCP_API_TOKEN` con un secreto fijo y `MCP_USER_EMAIL` con el correo
+del usuario activo cuyos datos se expondrán. El cliente debe enviar
+`Authorization: Bearer <MCP_API_TOKEN>` en cada solicitud. Sin ambas variables
+el acceso está deshabilitado. Usa un secreto largo y aleatorio, HTTPS fuera del
+entorno local y cambia el token en la configuración para revocarlo. Este token
+no sirve para la API REST. No se ofrece autenticación OAuth.
+
+Las herramientas `list_categories`, `list_accounts` y `list_cards` devuelven
+solo elementos activos del usuario autenticado. Las cuentas y tarjetas no
+incluyen saldos, deuda, crédito disponible ni límites. El transporte devuelve
+respuestas JSON y no admite conexiones SSE ni sesiones MCP persistentes.
+
 ## Pruebas
 
 ```bash
