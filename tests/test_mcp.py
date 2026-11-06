@@ -27,7 +27,7 @@ def test_mcp_auth_and_protocol(client):
     register(client, "one@example.com")
     initialized = rpc(client, "initialize", {"protocolVersion": "2025-03-26"}).json()
     assert initialized["result"]["protocolVersion"] == "2025-03-26"
-    assert {tool["name"] for tool in rpc(client, "tools/list").json()["result"]["tools"]} == {"list_categories", "list_accounts", "list_cards"}
+    assert {tool["name"] for tool in rpc(client, "tools/list").json()["result"]["tools"]} == {"list_categories", "list_accounts", "list_cards", "create_transaction"}
     assert rpc(client, "tools/call", {"name": "unknown"}).json()["error"]["code"] == -32602
     assert client.post("/mcp", headers={"Authorization": "Bearer test-secret"}, json={"jsonrpc": "2.0", "method": "notifications/initialized"}).status_code == 202
 
@@ -47,3 +47,22 @@ def test_mcp_isolation_and_no_balances(client):
     for tool in ("list_categories", "list_accounts", "list_cards"):
         text = rpc(client, "tools/call", {"name": tool}).json()["result"]["content"][0]["text"]
         assert "Only one" not in text and "Private" not in text
+
+
+def test_create_transaction_and_retry(client):
+    csrf = register(client, "one@example.com")
+    headers = {"X-CSRF-Token": csrf}
+    account = client.post("/api/accounts", headers=headers, json={"name": "Cuenta", "account_type": "checking", "currency": "USD", "opening_balance": "100", "opening_balance_date": "2025-01-01"}).json()
+    category = next(item for item in client.get("/api/categories").json() if item["kind"] == "expense")
+    args = {"transaction_type": "expense", "amount": "10", "currency": "USD", "transaction_date": "2025-01-02", "account_id": account["id"], "category_id": category["id"], "idempotency_key": "request-1"}
+    def call(payload):
+        return rpc(client, "tools/call", {"name": "create_transaction", "arguments": payload}).json()["result"]
+
+    first = call(args)
+    assert not first.get("isError")
+    assert json.loads(first["content"][0]["text"])["id"] == json.loads(call(args)["content"][0]["text"])["id"]
+    assert call({**args, "amount": "20"})["isError"]
+    assert call({**args, "idempotency_key": "request-2", "amount": "200"})["isError"]
+    assert call({**args, "idempotency_key": "request-3", "account_id": 99999})["isError"]
+    assert call({**args, "idempotency_key": ""})["isError"]
+    assert len(client.get("/api/transactions").json()) == 1
