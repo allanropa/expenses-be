@@ -43,8 +43,11 @@ con las mismas validaciones que la API REST. Requiere `transaction_type`
 (`income` o `expense`), `amount`, `currency`, `transaction_date`, `account_id`,
 `category_id` e `idempotency_key`. Usa una clave diferente para cada movimiento
 y la misma clave con los mismos datos para reintentar sin duplicarlo. También
-acepta categorías adicionales, descripción y notas. No crea transferencias ni
-compras con tarjeta. **El token MCP permite crear movimientos**, además de
+acepta categorías adicionales, descripción y notas. Para registrar una compra
+con tarjeta, usa `transaction_type: "expense"`, `card_id` en lugar de
+`account_id` y una `description` obligatoria; `installments_count` es opcional
+y por defecto es 1. Las compras con tarjeta admiten una sola categoría. No crea
+transferencias. **El token MCP permite crear movimientos**, además de
 consultar datos; protégelo como una credencial de escritura.
 
 ## Pruebas

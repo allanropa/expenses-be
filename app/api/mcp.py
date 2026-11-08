@@ -2,21 +2,26 @@
 
 import json
 import secrets
+from datetime import date
+from decimal import Decimal
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.ledger_schemas import TransactionCreate
+from app.api.card_schemas import PurchaseCreate
 from app.api.transactions import response_for
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.auth import User
-from app.models.cards import CardCurrency, CreditCard
+from app.models.cards import CardCurrency, CreditCard, CreditPurchase
 from app.models.ledger import Account, Category, FinancialOperation, FinancialTransaction
 from app.services.ledger import create_transaction
+from app.services.cards import create_purchase
 
 router = APIRouter(tags=["mcp"])
 PROTOCOLS = {"2025-03-26", "2025-06-18", "2025-11-25"}
@@ -25,12 +30,25 @@ class MCPTransactionCreate(TransactionCreate):
     idempotency_key: str = Field(min_length=1, max_length=120, pattern=r"\S")
 
 
-transaction_schema = MCPTransactionCreate.model_json_schema()
+class MCPCardTransactionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    transaction_type: Literal["expense"]
+    amount: Decimal = Field(gt=0, description="Monto positivo de la compra")
+    currency: str
+    transaction_date: date
+    card_id: int
+    category_id: int
+    description: str = Field(min_length=1, max_length=2000)
+    installments_count: int = Field(default=1, ge=1, le=120)
+    idempotency_key: str = Field(min_length=1, max_length=120, pattern=r"\S")
+
+
+transaction_schema = {"type": "object", "anyOf": [MCPTransactionCreate.model_json_schema(), MCPCardTransactionCreate.model_json_schema()]}
 TOOLS = [
     {"name": "list_categories", "description": "Lista las categorías activas del usuario.", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
     {"name": "list_accounts", "description": "Lista las cuentas activas sin saldos.", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
     {"name": "list_cards", "description": "Lista las tarjetas activas sin saldos ni deuda.", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
-    {"name": "create_transaction", "description": "Crea un ingreso o gasto en una cuenta. Usa una clave de idempotencia única para cada movimiento y reutilízala solo al reintentar el mismo movimiento. No crea transferencias ni compras con tarjeta.", "inputSchema": transaction_schema, "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True}},
+    {"name": "create_transaction", "description": "Crea un ingreso o gasto en una cuenta, o un gasto con tarjeta. Para tarjeta indica card_id, description y opcionalmente installments_count. Usa una clave de idempotencia única por movimiento. No crea transferencias.", "inputSchema": transaction_schema, "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True}},
 ]
 
 
@@ -58,6 +76,8 @@ def tool_data(name: str, user_id: int, db: Session) -> list[dict]:
 
 
 def create_mcp_transaction(arguments: dict, user_id: int, db: Session) -> dict:
+    if "card_id" in arguments:
+        return create_mcp_card_transaction(arguments, user_id, db)
     payload = MCPTransactionCreate.model_validate(arguments)
     key = "mcp:" + payload.idempotency_key
     operation = db.query(FinancialOperation).filter_by(user_id=user_id, idempotency_key=key).one_or_none()
@@ -87,6 +107,45 @@ def create_mcp_transaction(arguments: dict, user_id: int, db: Session) -> dict:
         # A concurrent request may have committed the same key first.
         if db.query(FinancialOperation).filter_by(user_id=user_id, idempotency_key=key).one_or_none():
             return create_mcp_transaction(arguments, user_id, db)
+        raise
+    return response_for(transaction).model_dump(mode="json")
+
+
+def create_mcp_card_transaction(arguments: dict, user_id: int, db: Session) -> dict:
+    payload = MCPCardTransactionCreate.model_validate(arguments)
+    purchase_data = PurchaseCreate.model_validate({
+        "card_id": payload.card_id, "category_id": payload.category_id,
+        "amount": payload.amount, "currency": payload.currency,
+        "purchase_date": payload.transaction_date, "installments_count": payload.installments_count,
+        "description": payload.description,
+    })
+    key = "mcp:" + payload.idempotency_key
+    operation = db.query(FinancialOperation).filter_by(user_id=user_id, idempotency_key=key).one_or_none()
+    if operation:
+        purchase = db.query(CreditPurchase).filter_by(operation_id=operation.id, user_id=user_id).one_or_none()
+        if purchase is None or any((
+            purchase.card_id != purchase_data.card_id,
+            purchase.category_id != purchase_data.category_id,
+            purchase.amount != purchase_data.amount,
+            purchase.currency != purchase_data.currency,
+            purchase.purchase_date != purchase_data.purchase_date,
+            purchase.installments_count != purchase_data.installments_count,
+            purchase.description != purchase_data.description.strip(),
+        )):
+            raise HTTPException(status_code=409, detail="La clave de idempotencia ya corresponde a otro movimiento")
+        transaction = db.query(FinancialTransaction).filter_by(operation_id=operation.id, user_id=user_id).one()
+        return response_for(transaction).model_dump(mode="json")
+    card = db.query(CreditCard).filter_by(id=payload.card_id, user_id=user_id, is_archived=False).one_or_none()
+    if card is None:
+        raise HTTPException(status_code=404, detail="Tarjeta activa no encontrada")
+    try:
+        purchase = create_purchase(db, user_id, purchase_data, key)
+        transaction = db.query(FinancialTransaction).filter_by(operation_id=purchase.operation_id, user_id=user_id).one()
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if db.query(FinancialOperation).filter_by(user_id=user_id, idempotency_key=key).one_or_none():
+            return create_mcp_card_transaction(arguments, user_id, db)
         raise
     return response_for(transaction).model_dump(mode="json")
 

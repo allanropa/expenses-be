@@ -66,3 +66,31 @@ def test_create_transaction_and_retry(client):
     assert call({**args, "idempotency_key": "request-3", "account_id": 99999})["isError"]
     assert call({**args, "idempotency_key": ""})["isError"]
     assert len(client.get("/api/transactions").json()) == 1
+
+
+def test_create_card_transaction_and_retry(client):
+    csrf = register(client, "one@example.com")
+    headers = {"X-CSRF-Token": csrf}
+    card = client.post("/api/cards", headers=headers, json={"name": "Visa", "statement_closing_day": 15, "currencies": [{"currency": "USD"}]}).json()
+    category = next(item for item in client.get("/api/categories").json() if item["kind"] == "expense")
+    args = {"transaction_type": "expense", "amount": "25", "currency": "USD", "transaction_date": "2025-01-02", "card_id": card["id"], "category_id": category["id"], "description": "Compra", "installments_count": 3, "idempotency_key": "card-1"}
+
+    def call(payload):
+        return rpc(client, "tools/call", {"name": "create_transaction", "arguments": payload}).json()["result"]
+
+    first = call(args)
+    assert not first.get("isError"), first
+    transaction = json.loads(first["content"][0]["text"])
+    assert transaction["card_id"] == card["id"] and transaction["payment_method"] == "credit"
+    assert transaction["description"] == "Compra"
+    assert json.loads(call(args)["content"][0]["text"])["id"] == transaction["id"]
+    assert call({**args, "installments_count": 2})["isError"]
+    assert call({**args, "idempotency_key": "card-2", "currency": "COP"})["isError"]
+    assert call({**args, "idempotency_key": "card-3", "transaction_type": "income"})["isError"]
+    purchases = client.get(f"/api/cards/{card['id']}/purchases").json()
+    assert len(purchases) == 1 and len(purchases[0]["installments"]) == 3
+    assert client.post(f"/api/cards/{card['id']}/archive", headers=headers).status_code == 200
+    assert call({**args, "idempotency_key": "card-4"})["isError"]
+    register(client, "two@example.com")
+    settings.mcp_user_email = "two@example.com"
+    assert call({**args, "idempotency_key": "card-5"})["isError"]
