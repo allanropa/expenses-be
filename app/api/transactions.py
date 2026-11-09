@@ -2,7 +2,7 @@ from datetime import date
 from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
-from sqlalchemy import Integer, String, cast as sql_cast, literal, or_, select, union_all
+from sqlalchemy import Integer, cast as sql_cast, func, literal, or_, select, union_all
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
@@ -97,6 +97,19 @@ def list_transactions(
     context: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db),
 ):
+    return list_transactions_for_user(
+        user_id=context.user.id, db=db, pagination=pagination, date_from=date_from, date_to=date_to,
+        transaction_type=transaction_type, account_id=account_id, card_id=card_id,
+        category_id=category_id, search=search, is_recurring=is_recurring,
+    )
+
+
+def list_transactions_for_user(
+    user_id: int, db: Session, pagination: Pagination, date_from: date | None = None,
+    date_to: date | None = None, transaction_type: str | None = None,
+    account_id: int | None = None, card_id: int | None = None, category_id: int | None = None,
+    search: str | None = None, is_recurring: bool | None = None,
+):
     transaction_entries = select(
         literal("transaction").label("entry_type"),
         FinancialTransaction.id.label("id"),
@@ -107,7 +120,7 @@ def list_transactions(
         sql_cast(literal(None), Integer).label("destination_account_id"),
         FinancialTransaction.description.label("description"),
     ).where(
-        FinancialTransaction.user_id == context.user.id,
+        FinancialTransaction.user_id == user_id,
         FinancialTransaction.status == TransactionStatus.ACTIVE,
     )
     transfer_entries = select(
@@ -120,7 +133,7 @@ def list_transactions(
         Transfer.destination_account_id.label("destination_account_id"),
         Transfer.description.label("description"),
     ).where(
-        Transfer.user_id == context.user.id,
+        Transfer.user_id == user_id,
         Transfer.operation_id == FinancialOperation.id,
     )
 
@@ -144,10 +157,11 @@ def list_transactions(
         transaction_entries = transaction_entries.where(FinancialTransaction.card_id == card_id)
         transfer_entries = transfer_entries.where(literal(False))
     if category_id:
+        category_values = func.json_each(FinancialTransaction.category_ids).table_valued("value")
         category_ids_match = (
             sql_cast(FinancialTransaction.category_ids, JSONB).contains([category_id])
             if db.bind is not None and db.bind.dialect.name == "postgresql"
-            else sql_cast(FinancialTransaction.category_ids, String).contains(f"[{category_id}]")
+            else select(category_values.c.value).where(category_values.c.value == category_id).exists()
         )
         transaction_entries = transaction_entries.where(
             or_(FinancialTransaction.category_id == category_id, category_ids_match)

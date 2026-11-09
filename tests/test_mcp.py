@@ -27,7 +27,7 @@ def test_mcp_auth_and_protocol(client):
     register(client, "one@example.com")
     initialized = rpc(client, "initialize", {"protocolVersion": "2025-03-26"}).json()
     assert initialized["result"]["protocolVersion"] == "2025-03-26"
-    assert {tool["name"] for tool in rpc(client, "tools/list").json()["result"]["tools"]} == {"list_categories", "list_accounts", "list_cards", "create_transaction"}
+    assert {tool["name"] for tool in rpc(client, "tools/list").json()["result"]["tools"]} == {"list_categories", "list_accounts", "list_cards", "list_transactions", "create_transaction"}
     assert rpc(client, "tools/call", {"name": "unknown"}).json()["error"]["code"] == -32602
     assert client.post("/mcp", headers={"Authorization": "Bearer test-secret"}, json={"jsonrpc": "2.0", "method": "notifications/initialized"}).status_code == 202
 
@@ -94,3 +94,41 @@ def test_create_card_transaction_and_retry(client):
     register(client, "two@example.com")
     settings.mcp_user_email = "two@example.com"
     assert call({**args, "idempotency_key": "card-5"})["isError"]
+
+
+def test_list_transactions_filters_pagination_and_isolation(client):
+    csrf = register(client, "one@example.com")
+    headers = {"X-CSRF-Token": csrf}
+    account = client.post("/api/accounts", headers=headers, json={"name": "Cuenta", "account_type": "checking", "currency": "USD", "opening_balance": "100", "opening_balance_date": "2025-01-01"}).json()
+    other = client.post("/api/accounts", headers=headers, json={"name": "Otra", "account_type": "checking", "currency": "USD", "opening_balance": "0", "opening_balance_date": "2025-01-01"}).json()
+    card = client.post("/api/cards", headers=headers, json={"name": "Visa", "statement_closing_day": 15, "currencies": [{"currency": "USD"}]}).json()
+    category = next(item for item in client.get("/api/categories").json() if item["kind"] == "expense")
+    second_category = next(item for item in client.get("/api/categories").json() if item["kind"] == "expense" and item["id"] != category["id"])
+    expense = client.post("/api/transactions", headers=headers, json={"transaction_type": "expense", "amount": "10", "currency": "USD", "transaction_date": "2025-01-02", "account_id": account["id"], "category_id": category["id"], "category_ids": [category["id"], second_category["id"]]})
+    assert expense.status_code == 201
+    purchase = client.post(f"/api/cards/{card['id']}/purchases", headers=headers, json={"card_id": card["id"], "category_id": category["id"], "amount": "5", "currency": "USD", "purchase_date": "2025-01-03", "installments_count": 1, "description": "Compra"})
+    assert purchase.status_code == 201
+    transfer = client.post("/api/transfers", headers=headers, json={"source_account_id": account["id"], "destination_account_id": other["id"], "source_amount": "2", "transfer_date": "2025-01-04"})
+    assert transfer.status_code == 201
+
+    def query(arguments):
+        return rpc(client, "tools/call", {"name": "list_transactions", "arguments": arguments}).json()["result"]
+
+    def items(arguments):
+        return json.loads(query(arguments)["content"][0]["text"])
+
+    assert len(items({})) == 3
+    assert items({"transaction_type": "transfer"})[0]["entry_type"] == "transfer"
+    assert len(items({"account_id": account["id"]})) == 2
+    assert len(items({"card_id": card["id"], "category_id": category["id"]})) == 1
+    assert len(items({"category_id": second_category["id"]})) == 1
+    assert len(items({"date_from": "2025-01-03", "date_to": "2025-01-03"})) == 1
+    first, second = items({"limit": 1, "offset": 0})[0], items({"limit": 1, "offset": 1})[0]
+    assert (first["entry_type"], first["id"]) != (second["entry_type"], second["id"])
+    assert items({"offset": 100}) == []
+    assert query({"limit": 101})["isError"]
+    assert query({"date_from": "2025-01-05", "date_to": "2025-01-01"})["isError"]
+    assert query({"unknown": True})["isError"]
+    register(client, "two@example.com")
+    settings.mcp_user_email = "two@example.com"
+    assert items({}) == []

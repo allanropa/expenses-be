@@ -8,13 +8,14 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.ledger_schemas import TransactionCreate
 from app.api.card_schemas import PurchaseCreate
-from app.api.transactions import response_for
+from app.api.transactions import list_transactions_for_user, response_for
+from app.api.pagination import Pagination
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.auth import User
@@ -43,11 +44,30 @@ class MCPCardTransactionCreate(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=120, pattern=r"\S")
 
 
+class MCPTransactionList(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    date_from: date | None = None
+    date_to: date | None = None
+    transaction_type: Literal["income", "expense", "payment", "transfer"] | None = None
+    account_id: int | None = Field(default=None, gt=0)
+    card_id: int | None = Field(default=None, gt=0)
+    category_id: int | None = Field(default=None, gt=0)
+    limit: int = Field(default=50, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if self.date_from and self.date_to and self.date_from > self.date_to:
+            raise ValueError("La fecha inicial no puede ser posterior a la fecha final")
+        return self
+
+
 transaction_schema = {"type": "object", "anyOf": [MCPTransactionCreate.model_json_schema(), MCPCardTransactionCreate.model_json_schema()]}
 TOOLS = [
     {"name": "list_categories", "description": "Lista las categorías activas del usuario.", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
     {"name": "list_accounts", "description": "Lista las cuentas activas sin saldos.", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
     {"name": "list_cards", "description": "Lista las tarjetas activas sin saldos ni deuda.", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
+    {"name": "list_transactions", "description": "Consulta movimientos activos, incluidos pagos y transferencias, con filtros y paginación; ordenados por creación descendente.", "inputSchema": MCPTransactionList.model_json_schema(), "annotations": {"readOnlyHint": True}},
     {"name": "create_transaction", "description": "Crea un ingreso o gasto en una cuenta, o un gasto con tarjeta. Para tarjeta indica card_id, description y opcionalmente installments_count. Usa una clave de idempotencia única por movimiento. No crea transferencias.", "inputSchema": transaction_schema, "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True}},
 ]
 
@@ -179,11 +199,22 @@ async def mcp(request: Request, user: User = Depends(get_mcp_user), db: Session 
     elif method == "tools/call":
         name = params.get("name")
         arguments = params.get("arguments", {})
-        if not isinstance(name, str) or name not in {tool["name"] for tool in TOOLS} or not isinstance(arguments, dict) or (name != "create_transaction" and arguments != {}):
+        if not isinstance(name, str) or name not in {tool["name"] for tool in TOOLS} or not isinstance(arguments, dict) or (name not in {"create_transaction", "list_transactions"} and arguments != {}):
             error = (-32602, "Unknown tool or invalid arguments")
         else:
             try:
-                data = create_mcp_transaction(arguments, user.id, db) if name == "create_transaction" else tool_data(name, user.id, db)
+                if name == "create_transaction":
+                    data = create_mcp_transaction(arguments, user.id, db)
+                elif name == "list_transactions":
+                    params = MCPTransactionList.model_validate(arguments)
+                    rows = list_transactions_for_user(
+                        user_id=user.id, db=db, pagination=Pagination(limit=params.limit, offset=params.offset),
+                        date_from=params.date_from, date_to=params.date_to, transaction_type=params.transaction_type,
+                        account_id=params.account_id, card_id=params.card_id, category_id=params.category_id,
+                    )
+                    data = [row.model_dump(mode="json") for row in rows]
+                else:
+                    data = tool_data(name, user.id, db)
                 result = {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}]}
             except ValidationError as exc:
                 result = {"isError": True, "content": [{"type": "text", "text": exc.json(include_url=False, include_context=False)}]}

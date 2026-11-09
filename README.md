@@ -38,6 +38,15 @@ solo elementos activos del usuario autenticado. Las cuentas y tarjetas no
 incluyen saldos, deuda, crédito disponible ni límites. El transporte devuelve
 respuestas JSON y no admite conexiones SSE ni sesiones MCP persistentes.
 
+`list_transactions` consulta movimientos activos del usuario configurado,
+incluidos ingresos, gastos, pagos y transferencias. Permite filtrar con
+`date_from`, `date_to` (fechas inclusivas), `transaction_type` (`income`,
+`expense`, `payment` o `transfer`), `account_id`, `card_id` y `category_id`.
+Los filtros se combinan; en transferencias, la cuenta puede ser origen o destino.
+Devuelve datos financieros y notas, ordenados por creación descendente; `limit`
+por defecto es 50 (máximo 100) y `offset` por defecto es 0. El token MCP permite
+leer estos datos sensibles; protégelo como una credencial de lectura y escritura.
+
 `create_transaction` registra ingresos o gastos en una cuenta activa del usuario,
 con las mismas validaciones que la API REST. Requiere `transaction_type`
 (`income` o `expense`), `amount`, `currency`, `transaction_date`, `account_id`,
