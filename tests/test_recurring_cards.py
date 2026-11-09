@@ -56,3 +56,26 @@ def test_recurring_card_purchase_and_edit_existing_marker(client):
     finally:
         generator.close()
     assert len(client.get("/api/transactions").json()) == 1
+
+
+def test_edit_card_transaction_description_and_categories(client):
+    csrf = client.post("/api/auth/register", json={"email": "edit@example.com", "password": "correct horse", "display_name": "Ana"}).json()["csrf_token"]
+    headers = {"X-CSRF-Token": csrf}
+    card = client.post("/api/cards", headers=headers, json={"name": "Visa", "statement_closing_day": 15, "currencies": [{"currency": "COP"}]}).json()
+    categories = client.get("/api/categories").json()
+    expenses = [item for item in categories if item["kind"] in ("expense", "both")][:2]
+    income = next(item for item in categories if item["kind"] == "income")
+    purchase = client.post(f"/api/cards/{card['id']}/purchases", headers=headers, json={"card_id": card["id"], "category_id": expenses[0]["id"], "amount": "50", "currency": "COP", "purchase_date": "2026-01-01", "installments_count": 1, "description": "Antes"})
+    assert purchase.status_code == 201, purchase.text
+    original = client.get("/api/transactions").json()[0]
+    category_ids = [item["id"] for item in expenses[::-1]]
+    updated = client.patch(f"/api/transactions/{original['id']}", headers=headers, json={"description": "Después", "category_ids": category_ids, "is_recurring": True})
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["description"] == "Después"
+    assert updated.json()["category_ids"] == category_ids
+    assert updated.json()["amount"] == original["amount"]
+    listed = client.get(f"/api/cards/{card['id']}/purchases").json()[0]
+    assert listed["description"] == "Después" and listed["category_id"] == category_ids[0]
+    invalid = client.patch(f"/api/transactions/{original['id']}", headers=headers, json={"category_ids": [income["id"]]})
+    assert invalid.status_code == 422
+    assert client.patch(f"/api/transactions/{original['id']}", headers=headers, json={"amount": "1"}).status_code == 422

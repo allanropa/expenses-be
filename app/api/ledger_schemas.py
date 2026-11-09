@@ -122,6 +122,7 @@ class TransactionResponse(BaseModel):
     card_id: int | None
     credit_purchase_id: int | None
     category_id: int | None
+    category_ids: list[int] = []
     destination_account_id: int | None = None
     payment_method: str
     description: str | None

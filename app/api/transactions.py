@@ -10,7 +10,8 @@ from app.api.deps import AuthContext, get_auth_context, require_csrf
 from app.api.ledger_schemas import TransactionCreate, TransactionResponse, TransactionUpdate
 from app.db.session import get_db
 from app.models.ledger import FinancialOperation, FinancialTransaction, Transfer
-from app.services.ledger import create_transaction, reverse_transaction
+from app.models.cards import CardCharge, CreditPurchase
+from app.services.ledger import create_transaction, reverse_transaction, get_owned_category
 from app.domain.enums import TransactionStatus
 from app.api.pagination import Pagination
 
@@ -217,9 +218,29 @@ def update_transaction(
     if original is None:
         raise HTTPException(status_code=404, detail="Transacción no encontrada")
     if original.card_id is not None or original.credit_purchase_id is not None:
-        if payload.model_fields_set != {"is_recurring"} or payload.is_recurring is None:
-            raise HTTPException(status_code=422, detail="Solo se puede editar la marca recurrente de una transacción de tarjeta")
-        original.is_recurring = payload.is_recurring
+        allowed = {"category_id", "category_ids", "description", "is_recurring"}
+        if not payload.model_fields_set <= allowed:
+            raise HTTPException(status_code=422, detail="No se pueden editar los datos financieros de una transacción de tarjeta")
+        if "category_ids" in payload.model_fields_set or "category_id" in payload.model_fields_set:
+            category_ids = payload.category_ids if payload.category_ids is not None else ([payload.category_id] if payload.category_id is not None else [])
+            category_ids = list(dict.fromkeys(category_ids))
+            if not category_ids:
+                raise HTTPException(status_code=422, detail="Selecciona al menos una categoría")
+            categories = [get_owned_category(db, context.user.id, category_id) for category_id in category_ids]
+            if any(category.kind not in ("expense", "both") or category.is_archived for category in categories):
+                raise HTTPException(status_code=422, detail="La categoría no corresponde a un gasto activo")
+            original.category_id = category_ids[0]
+            original.category_ids = category_ids
+        if "description" in payload.model_fields_set:
+            original.description = payload.description
+            db.query(CardCharge).filter(CardCharge.operation_id == original.operation_id, CardCharge.user_id == context.user.id).update({CardCharge.description: payload.description})
+        if payload.is_recurring is not None:
+            original.is_recurring = payload.is_recurring
+        if original.credit_purchase_id is not None:
+            purchase = db.query(CreditPurchase).filter(CreditPurchase.id == original.credit_purchase_id, CreditPurchase.user_id == context.user.id).one()
+            purchase.category_id = original.category_id
+            if "description" in payload.model_fields_set:
+                purchase.description = payload.description or ""
         db.commit()
         db.refresh(original)
         return response_for(original)
