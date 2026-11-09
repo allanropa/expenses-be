@@ -1,6 +1,7 @@
 from calendar import monthrange
 from datetime import date
 from decimal import Decimal
+from typing import Literal
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
@@ -30,6 +31,9 @@ def selected_period(date_from: date | None, date_to: date | None) -> tuple[date,
 def dashboard(
     date_from: date | None = None,
     date_to: date | None = None,
+    spending_method: Literal["debit", "credit"] | None = None,
+    spending_account_id: int | None = None,
+    spending_card_id: int | None = None,
     context: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db),
 ):
@@ -48,7 +52,7 @@ def dashboard(
             income[item.currency] = income.get(item.currency, Decimal("0")) + Decimal(item.amount)
         elif item.transaction_type == TransactionType.EXPENSE:
             expenses[item.currency] = expenses.get(item.currency, Decimal("0")) + Decimal(item.amount)
-    category_rows = db.query(
+    category_query = db.query(
         FinancialTransaction.currency,
         FinancialTransaction.category_id,
         func.sum(FinancialTransaction.amount),
@@ -59,7 +63,16 @@ def dashboard(
         FinancialTransaction.is_payment_component.is_(False),
         FinancialTransaction.transaction_date >= period_start,
         FinancialTransaction.transaction_date <= period_end,
-    ).group_by(
+    )
+    if spending_method == "debit":
+        category_query = category_query.filter(FinancialTransaction.account_id.is_not(None), FinancialTransaction.card_id.is_(None))
+    elif spending_method == "credit":
+        category_query = category_query.filter(FinancialTransaction.card_id.is_not(None))
+    if spending_account_id is not None:
+        category_query = category_query.filter(FinancialTransaction.account_id == spending_account_id, FinancialTransaction.card_id.is_(None))
+    if spending_card_id is not None:
+        category_query = category_query.filter(FinancialTransaction.card_id == spending_card_id)
+    category_rows = category_query.group_by(
         FinancialTransaction.currency,
         FinancialTransaction.category_id,
     ).all()
