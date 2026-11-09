@@ -7,10 +7,13 @@ from sqlalchemy.orm import Session
 
 from app.api.recurring_schemas import RecurringPaymentCreate, RecurringPaymentUpdate
 from app.api.ledger_schemas import TransactionCreate
+from app.api.card_schemas import PurchaseCreate
+from app.domain.cards import card_debt
 from app.domain.money import normalize_amount
-from app.models.ledger import Account, FinancialOperation
+from app.models.ledger import Account, FinancialOperation, FinancialTransaction
 from app.models.recurring import RecurringPayment
 from app.services.ledger import create_transaction, get_owned_account, get_owned_category
+from app.services.cards import create_purchase, get_owned_card, supported_currency
 
 logger = logging.getLogger(__name__)
 
@@ -52,14 +55,16 @@ def _first_occurrence(payment: RecurringPayment) -> date:
 
 
 def create_recurring(db: Session, user_id: int, payload: RecurringPaymentCreate) -> RecurringPayment:
-    account = _account_for_payload(db, user_id, payload)
+    currency = _currency_for_payload(db, user_id, payload)
     get_owned_category(db, user_id, payload.category_id)
-    amount = normalize_amount(payload.amount, account.currency)
+    amount = normalize_amount(payload.amount, currency)
     payment = RecurringPayment(
         user_id=user_id,
         transaction_type=payload.transaction_type,
         source_account_id=payload.source_account_id,
         destination_account_id=payload.destination_account_id,
+        card_id=payload.card_id,
+        currency=currency if payload.card_id is not None else None,
         amount=amount,
         category_id=payload.category_id,
         description=payload.description,
@@ -76,12 +81,14 @@ def create_recurring(db: Session, user_id: int, payload: RecurringPaymentCreate)
 
 
 def update_recurring(db: Session, user_id: int, payment: RecurringPayment, payload: RecurringPaymentUpdate) -> RecurringPayment:
-    account = _account_for_payload(db, user_id, payload)
+    currency = _currency_for_payload(db, user_id, payload)
     get_owned_category(db, user_id, payload.category_id)
     payment.transaction_type = payload.transaction_type
     payment.source_account_id = payload.source_account_id
     payment.destination_account_id = payload.destination_account_id
-    payment.amount = normalize_amount(payload.amount, account.currency)
+    payment.card_id = payload.card_id
+    payment.currency = currency if payload.card_id is not None else None
+    payment.amount = normalize_amount(payload.amount, currency)
     payment.category_id = payload.category_id
     payment.description = payload.description
     payment.frequency = payload.frequency
@@ -104,6 +111,17 @@ def _account_for_payload(db: Session, user_id: int, payload: RecurringPaymentCre
     return account
 
 
+def _currency_for_payload(db: Session, user_id: int, payload: RecurringPaymentCreate) -> str:
+    if payload.card_id is None:
+        return _account_for_payload(db, user_id, payload).currency
+    card = get_owned_card(db, user_id, payload.card_id)
+    if card.is_archived:
+        raise HTTPException(status_code=422, detail="La tarjeta de la recurrencia está archivada")
+    currency = (payload.currency or "").upper()
+    supported_currency(db, card.id, currency)
+    return currency
+
+
 def process_payment(db: Session, payment: RecurringPayment, today: date) -> None:
     if not payment.is_active:
         return
@@ -119,9 +137,25 @@ def process_payment(db: Session, payment: RecurringPayment, today: date) -> None
             FinancialOperation.idempotency_key == key,
         ).one_or_none()
         if operation is None:
-            account = _account_for(payment, db, payment.user_id)
             try:
-                transaction = create_transaction(
+                if payment.card_id is not None:
+                    card = get_owned_card(db, payment.user_id, payment.card_id)
+                    if card.is_archived:
+                        raise HTTPException(status_code=422, detail="La tarjeta de la recurrencia está archivada")
+                    currency = payment.currency or ""
+                    card_currency = supported_currency(db, card.id, currency)
+                    if card_currency.credit_limit is not None and card_debt(db, card.id, currency) + payment.amount > card_currency.credit_limit:
+                        raise HTTPException(status_code=422, detail="El gasto supera el crédito disponible")
+                    purchase = create_purchase(db, payment.user_id, PurchaseCreate(
+                        card_id=card.id, category_id=payment.category_id, amount=payment.amount,
+                        currency=currency, purchase_date=occurrence, installments_count=1,
+                        description=payment.description or "Gasto recurrente",
+                    ), key)
+                    transaction = db.query(FinancialTransaction).filter(FinancialTransaction.credit_purchase_id == purchase.id).one()
+                    transaction.is_recurring = True
+                else:
+                    account = _account_for(payment, db, payment.user_id)
+                    transaction = create_transaction(
                     db,
                     payment.user_id,
                     TransactionCreate(

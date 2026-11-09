@@ -16,6 +16,8 @@ class RecurringPayment(Base):
     transaction_type: Mapped[str] = mapped_column(String(8), nullable=False)
     source_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id", ondelete="RESTRICT"), nullable=True)
     destination_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id", ondelete="RESTRICT"), nullable=True)
+    card_id: Mapped[int | None] = mapped_column(ForeignKey("credit_cards.id", ondelete="RESTRICT"), nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id", ondelete="RESTRICT"), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)

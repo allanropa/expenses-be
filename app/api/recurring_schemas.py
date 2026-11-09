@@ -13,6 +13,8 @@ class RecurringPaymentCreate(BaseModel):
     transaction_type: TransactionKind
     source_account_id: int | None = None
     destination_account_id: int | None = None
+    card_id: int | None = None
+    currency: str | None = None
     amount: Decimal = Field(gt=0)
     category_id: int
     description: str | None = Field(default=None, max_length=2000)
@@ -25,8 +27,10 @@ class RecurringPaymentCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_schedule(self):
-        if self.transaction_type == "expense" and self.source_account_id is None:
-            raise ValueError("Un gasto recurrente requiere una cuenta de origen")
+        if self.transaction_type == "expense" and ((self.source_account_id is None) == (self.card_id is None)):
+            raise ValueError("Un gasto recurrente requiere una cuenta o una tarjeta")
+        if self.card_id is not None and (self.transaction_type != "expense" or not self.currency or self.destination_account_id is not None):
+            raise ValueError("La tarjeta requiere un gasto y una moneda válida")
         if self.transaction_type == "income" and self.destination_account_id is None:
             raise ValueError("Un ingreso recurrente requiere una cuenta destino")
         if self.end_date is not None and self.end_date < self.start_date:
@@ -49,6 +53,7 @@ class RecurringPaymentResponse(BaseModel):
     transaction_type: str
     source_account_id: int | None
     destination_account_id: int | None
+    card_id: int | None
     amount: Decimal
     currency: str
     category_id: int

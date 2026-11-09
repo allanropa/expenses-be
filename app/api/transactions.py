@@ -217,10 +217,12 @@ def update_transaction(
     if original is None:
         raise HTTPException(status_code=404, detail="Transacción no encontrada")
     if original.card_id is not None or original.credit_purchase_id is not None:
-        raise HTTPException(
-            status_code=422,
-            detail="Las transacciones generadas por tarjetas no se pueden editar; elimínelas o modifique la operación de origen",
-        )
+        if payload.model_fields_set != {"is_recurring"} or payload.is_recurring is None:
+            raise HTTPException(status_code=422, detail="Solo se puede editar la marca recurrente de una transacción de tarjeta")
+        original.is_recurring = payload.is_recurring
+        db.commit()
+        db.refresh(original)
+        return response_for(original)
     if original.account_id is None or original.category_id is None:
         raise HTTPException(status_code=422, detail="La transacción no tiene referencias completas")
     replacement_payload = TransactionCreate(

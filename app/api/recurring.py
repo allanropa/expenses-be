@@ -15,14 +15,15 @@ router = APIRouter(prefix="/api/recurring-payments", tags=["recurring-payments"]
 
 def to_response(db: Session, payment: RecurringPayment) -> RecurringPaymentResponse:
     account_id = payment.source_account_id if payment.transaction_type == "expense" else payment.destination_account_id
-    account = db.query(Account).filter(Account.id == account_id).one()
+    account = db.query(Account).filter(Account.id == account_id).one_or_none()
     return RecurringPaymentResponse(
         id=payment.id,
         transaction_type=payment.transaction_type,
         source_account_id=payment.source_account_id,
         destination_account_id=payment.destination_account_id,
+        card_id=payment.card_id,
         amount=Decimal(payment.amount),
-        currency=account.currency,
+        currency=payment.currency if payment.card_id is not None else account.currency,
         category_id=payment.category_id,
         description=payment.description,
         frequency=payment.frequency,
