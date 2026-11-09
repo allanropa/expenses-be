@@ -147,14 +147,14 @@ def dashboard(
         FinancialTransaction.status == TransactionStatus.ACTIVE,
         FinancialTransaction.transaction_date >= period_start,
         FinancialTransaction.transaction_date <= period_end,
-    ).order_by(FinancialOperation.created_at.desc()).limit(20).all()
+    ).order_by(FinancialTransaction.transaction_date.desc(), FinancialOperation.created_at.desc(), FinancialTransaction.id.desc()).limit(20).all()
     recent_transfers = db.query(Transfer, FinancialOperation.created_at).join(
         FinancialOperation, Transfer.operation_id == FinancialOperation.id,
     ).filter(
         Transfer.user_id == context.user.id,
         Transfer.transfer_date >= period_start,
         Transfer.transfer_date <= period_end,
-    ).order_by(FinancialOperation.created_at.desc()).limit(20).all()
+    ).order_by(Transfer.transfer_date.desc(), FinancialOperation.created_at.desc(), Transfer.id.desc()).limit(20).all()
     account_names = {a.id: a.name for a in accounts}
     card_names = {c.id: c.name for c in cards}
     recent_entries = [(item.transaction_date, created_at, item.id, "transaction", item) for item, created_at in recent]
@@ -162,7 +162,7 @@ def dashboard(
         (item.transfer_date, created_at, item.id, "transfer", item)
         for item, created_at in recent_transfers
     )
-    recent_entries.sort(key=lambda entry: (entry[1], entry[2]), reverse=True)
+    recent_entries.sort(key=lambda entry: (entry[0], entry[1], entry[2]), reverse=True)
     transaction_list = []
     for _, created_at, _, entry_type, item in recent_entries[:20]:
         if entry_type == "transfer":

@@ -148,6 +148,33 @@ def test_transfer_is_atomic_and_multicurrency_is_explicit(client):
     assert recent[0]["destination"] == destination["name"]
 
 
+def test_dashboard_recent_entries_are_selected_and_ordered_by_movement_date(client):
+    csrf = register(client)
+    source = account(client, csrf, "Origen")
+    destination = account(client, csrf, "Destino")
+    headers = {"X-CSRF-Token": csrf}
+    category = next(item for item in client.get("/api/categories").json() if item["name"] == "Alimentación")
+    for day in range(21, 0, -1):
+        response = client.post("/api/transactions", headers=headers, json={
+            "transaction_type": "expense", "amount": "1", "currency": "COP",
+            "transaction_date": f"2026-01-{day:02}", "account_id": source["id"],
+            "category_id": category["id"],
+        })
+        assert response.status_code == 201, response.text
+    transfer = client.post("/api/transfers", headers=headers, json={
+        "source_account_id": source["id"], "destination_account_id": destination["id"],
+        "source_amount": "1", "transfer_date": "2026-01-22",
+    })
+    assert transfer.status_code == 201, transfer.text
+    response = client.get("/api/dashboard?date_from=2026-01-01&date_to=2026-01-31")
+    recent = response.json()["recent_transactions"]
+    assert len(recent) == 20
+    assert recent[0]["entry_type"] == "transfer"
+    assert [entry["transaction_date"] for entry in recent] == [
+        f"2026-01-{day:02}" for day in range(22, 2, -1)
+    ]
+
+
 def test_account_and_transaction_are_isolated_between_users(client):
     csrf = register(client, "first@example.com")
     first = account(client, csrf)
