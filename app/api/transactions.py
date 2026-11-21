@@ -260,6 +260,11 @@ def update_transaction(
         return response_for(original)
     if original.account_id is None or original.category_id is None:
         raise HTTPException(status_code=422, detail="La transacción no tiene referencias completas")
+    if payload.model_fields_set <= {"description"}:
+        original.description = payload.description
+        db.commit()
+        db.refresh(original)
+        return response_for(original)
     replacement_payload = TransactionCreate(
         transaction_type=cast(Literal["income", "expense"], payload.transaction_type or original.transaction_type),
         amount=payload.amount if payload.amount is not None else original.amount,

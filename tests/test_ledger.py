@@ -109,6 +109,38 @@ def test_expense_cannot_exceed_account_balance(client):
     assert client.get("/api/accounts").json()[0]["current_balance"] == "100"
 
 
+def test_transaction_description_can_be_updated_without_available_balance(client):
+    csrf = register(client)
+    checking = account(client, csrf, opening_balance="100")
+    category = next(item for item in client.get("/api/categories").json() if item["name"] == "Alimentación")
+    expense = client.post(
+        "/api/transactions",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "transaction_type": "expense",
+            "amount": "100",
+            "currency": "COP",
+            "transaction_date": "2026-01-05",
+            "account_id": checking["id"],
+            "category_id": category["id"],
+            "description": "Descripción original",
+        },
+    )
+    assert expense.status_code == 201, expense.text
+    assert client.get("/api/accounts").json()[0]["current_balance"] == "0"
+
+    updated = client.patch(
+        f"/api/transactions/{expense.json()['id']}",
+        headers={"X-CSRF-Token": csrf},
+        json={"description": "Descripción actualizada"},
+    )
+
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["id"] == expense.json()["id"]
+    assert updated.json()["description"] == "Descripción actualizada"
+    assert client.get("/api/accounts").json()[0]["current_balance"] == "0"
+
+
 def test_transfer_is_atomic_and_multicurrency_is_explicit(client):
     csrf = register(client)
     source = account(client, csrf, "COP", "COP", "1000000")
